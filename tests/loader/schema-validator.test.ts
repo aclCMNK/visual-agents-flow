@@ -1,0 +1,262 @@
+/**
+ * tests/loader/schema-validator.test.ts
+ *
+ * Unit tests for schema-validator.ts
+ *
+ * Tests:
+ * - validateAfproj: valid, invalid, partial
+ * - validateAdata: valid, invalid
+ * - hasAfprojIdentity / hasAdataIdentity
+ * - validateAdataBatch
+ */
+
+import { describe, it, expect } from "bun:test";
+import {
+  validateAfproj,
+  validateAdata,
+  validateAdataBatch,
+  hasAfprojIdentity,
+  hasAdataIdentity,
+} from "../../src/loader/schema-validator.ts";
+import { makeAfproj, makeAdataA, AGENT_A_ID, AGENT_B_ID } from "./fixtures/project-factory.ts";
+
+// ── validateAfproj ─────────────────────────────────────────────────────────
+
+describe("validateAfproj", () => {
+  it("returns success for a valid .afproj object", () => {
+    const raw = makeAfproj();
+    const result = validateAfproj(raw, "test.afproj");
+
+    expect(result.success).toBe(true);
+    expect(result.data).toBeDefined();
+    expect(result.issues).toHaveLength(0);
+    expect(result.data?.name).toBe("Test Project");
+  });
+
+  it("returns errors for missing required fields", () => {
+    const result = validateAfproj({}, "test.afproj");
+
+    expect(result.success).toBe(false);
+    expect(result.issues.length).toBeGreaterThan(0);
+    expect(result.issues.every((i) => i.severity === "error")).toBe(true);
+  });
+
+  it("reports missing name field", () => {
+    const raw = { ...makeAfproj(), name: "" };
+    const result = validateAfproj(raw, "test.afproj");
+
+    expect(result.success).toBe(false);
+    const nameIssue = result.issues.find((i) => i.message.includes("name"));
+    expect(nameIssue).toBeDefined();
+  });
+
+  it("reports invalid createdAt (not ISO 8601)", () => {
+    const raw = { ...makeAfproj(), createdAt: "not-a-date" };
+    const result = validateAfproj(raw, "test.afproj");
+
+    expect(result.success).toBe(false);
+    const dtIssue = result.issues.find((i) => i.message.toLowerCase().includes("createdat"));
+    expect(dtIssue).toBeDefined();
+  });
+
+  it("reports invalid agent UUID", () => {
+    const raw = makeAfproj({
+      agents: [
+        {
+          id: "not-a-uuid",
+          name: "Agent",
+          profilePath: `behaviors/not-a-uuid/profile.md`,
+          adataPath: `metadata/not-a-uuid.adata`,
+          isEntrypoint: true,
+        },
+      ],
+    });
+    const result = validateAfproj(raw, "test.afproj");
+
+    expect(result.success).toBe(false);
+  });
+
+  it("reports invalid profilePath format", () => {
+    const raw = makeAfproj({
+      agents: [
+        {
+          id: AGENT_A_ID,
+          name: "Agent",
+          profilePath: "wrong/path/file.md", // must match behaviors/<id>/profile.md
+          adataPath: `metadata/${AGENT_A_ID}.adata`,
+          isEntrypoint: true,
+        },
+      ],
+    });
+    const result = validateAfproj(raw, "test.afproj");
+
+    expect(result.success).toBe(false);
+  });
+
+  it("tags issues with the provided source path", () => {
+    const result = validateAfproj({}, "my-project.afproj");
+    expect(result.issues.every((i) => i.source === "my-project.afproj")).toBe(true);
+  });
+
+  it("applies default values when optional fields are missing", () => {
+    const raw = {
+      id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      name: "Minimal Project",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const result = validateAfproj(raw, "min.afproj");
+
+    expect(result.success).toBe(true);
+    expect(result.data?.version).toBe(1);
+    expect(result.data?.agents).toEqual([]);
+    expect(result.data?.connections).toEqual([]);
+    expect(result.data?.properties).toEqual({});
+  });
+});
+
+// ── validateAdata ──────────────────────────────────────────────────────────
+
+describe("validateAdata", () => {
+  it("returns success for a valid .adata object", () => {
+    const raw = makeAdataA();
+    const result = validateAdata(raw, `metadata/${AGENT_A_ID}.adata`);
+
+    expect(result.success).toBe(true);
+    expect(result.data).toBeDefined();
+    expect(result.issues).toHaveLength(0);
+    expect(result.data?.agentId).toBe(AGENT_A_ID);
+  });
+
+  it("reports missing agentId", () => {
+    const { agentId: _removed, ...rawNoId } = makeAdataA();
+    const result = validateAdata(rawNoId, "metadata/test.adata");
+
+    expect(result.success).toBe(false);
+    expect(result.issues.some((i) => i.message.toLowerCase().includes("agentid"))).toBe(true);
+  });
+
+  it("reports invalid agentId (not UUID)", () => {
+    const raw = { ...makeAdataA(), agentId: "not-a-uuid" };
+    const result = validateAdata(raw, "metadata/test.adata");
+
+    expect(result.success).toBe(false);
+  });
+
+  it("reports invalid aspect filePath format", () => {
+    const raw = makeAdataA({
+      aspects: [
+        {
+          id: "bad-aspect",
+          name: "Bad Aspect",
+          filePath: "wrong/path/aspect.md", // must match behaviors/<agentId>/<name>.md
+          order: 0,
+          enabled: true,
+          metadata: {},
+        },
+      ],
+    });
+    const result = validateAdata(raw, `metadata/${AGENT_A_ID}.adata`);
+
+    expect(result.success).toBe(false);
+  });
+
+  it("reports invalid skill filePath format", () => {
+    const raw = makeAdataA({
+      skills: [
+        {
+          id: "bad-skill",
+          name: "Bad Skill",
+          filePath: "wrong/skill.md", // must match skills/<name>.md
+          enabled: true,
+        },
+      ],
+    });
+    const result = validateAdata(raw, `metadata/${AGENT_A_ID}.adata`);
+
+    expect(result.success).toBe(false);
+  });
+
+  it("applies defaults for optional fields", () => {
+    const raw = {
+      agentId: AGENT_A_ID,
+      agentName: "Test",
+      profilePath: `behaviors/${AGENT_A_ID}/profile.md`,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const result = validateAdata(raw, `metadata/${AGENT_A_ID}.adata`);
+
+    expect(result.success).toBe(true);
+    expect(result.data?.aspects).toEqual([]);
+    expect(result.data?.skills).toEqual([]);
+    expect(result.data?.subagents).toEqual([]);
+    expect(result.data?.metadata).toEqual({});
+  });
+});
+
+// ── validateAdataBatch ─────────────────────────────────────────────────────
+
+describe("validateAdataBatch", () => {
+  it("validates multiple .adata files and aggregates issues", () => {
+    const entries: Array<[string, unknown]> = [
+      [`metadata/${AGENT_A_ID}.adata`, makeAdataA()],
+      [`metadata/${AGENT_B_ID}.adata`, {}], // invalid
+    ];
+
+    const { results, allIssues } = validateAdataBatch(entries);
+
+    expect(results.size).toBe(2);
+    expect(results.get(`metadata/${AGENT_A_ID}.adata`)?.success).toBe(true);
+    expect(results.get(`metadata/${AGENT_B_ID}.adata`)?.success).toBe(false);
+    expect(allIssues.length).toBeGreaterThan(0);
+  });
+
+  it("returns empty issues when all entries are valid", () => {
+    const entries: Array<[string, unknown]> = [
+      [`metadata/${AGENT_A_ID}.adata`, makeAdataA()],
+    ];
+
+    const { allIssues } = validateAdataBatch(entries);
+    expect(allIssues).toHaveLength(0);
+  });
+});
+
+// ── Identity checks ────────────────────────────────────────────────────────
+
+describe("hasAfprojIdentity", () => {
+  it("returns true for object with name and version", () => {
+    expect(hasAfprojIdentity({ name: "Test", version: 1 })).toBe(true);
+  });
+
+  it("returns false for object missing name", () => {
+    expect(hasAfprojIdentity({ version: 1 })).toBe(false);
+  });
+
+  it("returns false for null", () => {
+    expect(hasAfprojIdentity(null)).toBe(false);
+  });
+
+  it("returns false for non-object", () => {
+    expect(hasAfprojIdentity("string")).toBe(false);
+    expect(hasAfprojIdentity(42)).toBe(false);
+  });
+});
+
+describe("hasAdataIdentity", () => {
+  it("returns true for object with agentId and version", () => {
+    expect(hasAdataIdentity({ agentId: AGENT_A_ID, version: 1 })).toBe(true);
+  });
+
+  it("returns false for object missing agentId", () => {
+    expect(hasAdataIdentity({ version: 1 })).toBe(false);
+  });
+
+  it("returns false for empty agentId string", () => {
+    expect(hasAdataIdentity({ agentId: "", version: 1 })).toBe(false);
+  });
+
+  it("returns false for null", () => {
+    expect(hasAdataIdentity(null)).toBe(false);
+  });
+});

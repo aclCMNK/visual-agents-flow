@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      NOTE: Content-Security-Policy is intentionally NOT set here via a meta tag.
+      The Electron main process sets the CSP via session.webRequest.onHeadersReceived
+      (see src/electron/main.ts) with environment-appropriate directives:
+        - Dev:  allows 'unsafe-eval' + Vite HMR websocket
+        - Prod: strict 'self'-only policy
+      A conflicting meta tag here would override or conflict with the header-based CSP.
+    -->
+    <title>AgentsFlow</title>
+    <!-- Favicon placeholder — replace with actual icon in production -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- Vite injects the bundled renderer script here -->
+    <script type="module" src="/src/ui/main.tsx"></script>
+  </body>
+</html>

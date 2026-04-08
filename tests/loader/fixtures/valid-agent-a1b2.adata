@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "agentId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "agentName": "Support Agent",
+  "description": "Handles level-1 support tickets",
+  "aspects": [
+    {
+      "id": "tone",
+      "name": "Tone of Voice",
+      "filePath": "behaviors/a1b2c3d4-e5f6-7890-abcd-ef1234567890/tone.md",
+      "order": 0,
+      "enabled": true,
+      "metadata": {}
+    },
+    {
+      "id": "rules",
+      "name": "Operating Rules",
+      "filePath": "behaviors/a1b2c3d4-e5f6-7890-abcd-ef1234567890/rules.md",
+      "order": 1,
+      "enabled": true,
+      "metadata": {}
+    }
+  ],
+  "skills": [
+    {
+      "id": "kb-search",
+      "name": "Knowledge Base Search",
+      "filePath": "skills/kb-search.md",
+      "enabled": true
+    }
+  ],
+  "subagents": [
+    {
+      "id": "d4e5f6a7-b8c9-0123-defa-123456789003",
+      "name": "Ticket Classifier",
+      "description": "Classifies tickets by category",
+      "profilePath": "behaviors/a1b2c3d4-e5f6-7890-abcd-ef1234567890/classifier-subagent.md",
+      "aspects": [],
+      "skills": [],
+      "metadata": {}
+    }
+  ],
+  "profilePath": "behaviors/a1b2c3d4-e5f6-7890-abcd-ef1234567890/profile.md",
+  "metadata": {
+    "team": "support"
+  },
+  "createdAt": "2026-04-06T10:00:00.000Z",
+  "updatedAt": "2026-04-06T10:00:00.000Z"
+}
