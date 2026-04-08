@@ -3499,8 +3499,18 @@ button:disabled {
 /* ── Links SVG overlay ────────────────────────────────────────────────────── */
 /*
  * An SVG that covers the entire canvas, positioned behind node divs.
- * Links are smooth Spline (cubic bezier) curves drawn here.
- * No arrows, ports, or triangles — pure center-to-center curves.
+ * Links are rounded polyline paths drawn here with directional arrowheads.
+ *
+ * pointer-events is set to "none" via inline style on the SVG element so that
+ * the SVG itself never blocks canvas mouse events (pan, click-to-place, etc.).
+ * Individual hitbox <path> elements explicitly set pointer-events: stroke to
+ * override the inherited "none" and receive click events on their stroke area.
+ *
+ * Child rendering order inside each <g>:
+ *   1. hitbox   — wide transparent stroke, pointer-events: stroke, onClick handler
+ *   2. glow     — semi-opaque wider stroke (selected only), pointer-events: none
+ *   3. visible  — the actual colored path, pointer-events: none
+ *   4. arrow    — polygon arrowhead at destination, pointer-events: none
  */
 
 .flow-canvas__links-svg {
@@ -3508,19 +3518,20 @@ button:disabled {
   inset: 0;
   width: 100%;
   height: 100%;
-  pointer-events: none; /* SVG itself doesn't intercept; individual paths do */
+  /* pointer-events set inline on the element to "none"; hitbox paths override
+     it with pointer-events: stroke so only the stroke area is clickable */
   overflow: visible;
   z-index: 0; /* always behind nodes */
 }
 
-/* SVG path: normal link */
+/* SVG path: normal link — smooth color+width transition on select/deselect */
 .flow-canvas__link {
   transition: stroke 120ms ease, stroke-width 120ms ease;
 }
 
 /* SVG path: selected link */
 .flow-canvas__link--selected {
-  /* glow effect applied via sibling path in JS */
+  transition: stroke 120ms ease, stroke-width 120ms ease;
 }
 
 /* ── Link-drag canvas state ───────────────────────────────────────────────── */
@@ -3545,5 +3556,215 @@ button:disabled {
   background: rgba(99, 102, 241, 0.12);
   border-color: rgba(99, 102, 241, 0.4);
   color: var(--color-primary);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/* Flow Canvas — Viewport (pan + zoom)                                         */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * .flow-canvas__viewport — the scrollable/transformable inner layer.
+ * All nodes and the SVG link layer live inside this div.
+ * It is moved by CSS transform: translate(panX px, panY px) scale(zoom).
+ * transform-origin is kept at 0 0 so pan/zoom math stays simple.
+ */
+.flow-canvas__viewport {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+  /* Smooth pan/zoom — fast but not instant (80ms feel-good sweet spot) */
+  will-change: transform;
+}
+
+/* While actively panning, suppress the transition for zero-lag feel */
+.flow-canvas__viewport--panning {
+  transition: none !important;
+}
+
+/* Mode: panning — swap cursor on the entire canvas */
+.flow-canvas--pan-mode {
+  cursor: grab !important;
+}
+
+.flow-canvas--pan-mode.flow-canvas--panning {
+  cursor: grabbing !important;
+}
+
+/* In pan mode, disable pointer events on nodes so canvas receives all events */
+.flow-canvas--pan-mode .flow-canvas__node {
+  pointer-events: none;
+}
+
+/* Floating panels are ALWAYS interactive regardless of canvas mode.
+   pointer-events: all ensures they are never silenced by an ancestor rule. */
+.canvas-tool-panel,
+.canvas-zoom-panel {
+  pointer-events: all;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/* Tool Panel — floating left (Pointer / Hand mode toggle)                     */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+.canvas-tool-panel {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 5px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  user-select: none;
+}
+
+.canvas-tool-panel__btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+  transition:
+    background var(--transition),
+    color var(--transition),
+    border-color var(--transition);
+  cursor: pointer;
+  padding: 0;
+  /* Material Icons / SVG sizing */
+  font-size: 0px; /* hide any text children */
+}
+
+.canvas-tool-panel__btn svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+  flex-shrink: 0;
+}
+
+.canvas-tool-panel__btn:hover {
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+
+/* Active / selected tool */
+.canvas-tool-panel__btn--active {
+  background: rgba(99, 102, 241, 0.18);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.canvas-tool-panel__btn--active:hover {
+  background: rgba(99, 102, 241, 0.26);
+}
+
+/* Tooltip title is handled via native `title` attribute */
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/* Zoom Panel — floating bottom-right (slider + zoom % + center button)        */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+.canvas-zoom-panel {
+  position: absolute;
+  bottom: 52px; /* above the placing-hint which sits at bottom: 16px */
+  right: 14px;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 6px 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  user-select: none;
+}
+
+/* Zoom % label */
+.canvas-zoom-panel__label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  min-width: 36px;
+  text-align: right;
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+
+/* Slider */
+.canvas-zoom-panel__slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 130px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-surface-2);
+  outline: none;
+  cursor: pointer;
+  border: none;
+  /* Custom track fill done in JS via background-image inline style */
+}
+
+.canvas-zoom-panel__slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  cursor: pointer;
+  border: 2px solid var(--color-surface);
+  box-shadow: 0 0 0 1px var(--color-primary);
+  transition: background var(--transition), transform var(--transition);
+}
+
+.canvas-zoom-panel__slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+.canvas-zoom-panel__slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  cursor: pointer;
+  border: 2px solid var(--color-surface);
+  box-shadow: 0 0 0 1px var(--color-primary);
+}
+
+/* Center button */
+.canvas-zoom-panel__center-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 0;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+  flex-shrink: 0;
+}
+
+.canvas-zoom-panel__center-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+.canvas-zoom-panel__center-btn:hover {
+  background: var(--color-border);
+  color: var(--color-text);
+  border-color: var(--color-primary);
 }
 
