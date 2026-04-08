@@ -702,6 +702,19 @@ export function FlowCanvas() {
 
   const isDraggingLink = linkDrag !== null;
 
+  /**
+   * Live agent positions for the SVG links layer.
+   * While a node is being dragged, its position in the store is NOT yet updated
+   * (the store is only written on mouseup). We substitute the live dragPos so
+   * that all connection lines follow the dragged node in real time.
+   */
+  const liveAgentPositions = agents.map((a) => ({
+    id: a.id,
+    x: draggingId === a.id ? dragPos.x : a.x,
+    y: draggingId === a.id ? dragPos.y : a.y,
+    isOrchestrator: a.isOrchestrator,
+  }));
+
   return (
     <div
       ref={canvasRef}
@@ -718,7 +731,7 @@ export function FlowCanvas() {
     >
       {/* SVG links layer — rendered first in DOM and z-index: 0 so nodes (z-index: 2) always appear above */}
       <LinksSvg
-        agents={agents.map((a) => ({ id: a.id, x: a.x, y: a.y, isOrchestrator: a.isOrchestrator }))}
+        agents={liveAgentPositions}
         links={links}
         selectedLinkId={selectedLinkId}
         linkDrag={linkDrag}
