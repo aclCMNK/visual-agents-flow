@@ -30,6 +30,7 @@ import React, { useEffect, useState, useRef, useCallback } from "react";
 import { useAgentFlowStore } from "../store/agentFlowStore.ts";
 import { useProjectStore } from "../store/projectStore.ts";
 import type { LinkRuleType, DelegationType } from "../store/agentFlowStore.ts";
+import type { PermissionsModalTarget } from "../store/agentFlowStore.ts";
 
 // ── Placeholder message map ────────────────────────────────────────────────
 
@@ -275,6 +276,9 @@ function AgentAdapterForm({ agentId }: AgentAdapterFormProps) {
       {/* ── Agent Profiles section (always visible once adapter is created) ── */}
       <AgentProfilesSection agentId={agentId} />
 
+      {/* ── Permissions section (always visible once a node is selected) ───── */}
+      <PermissionsSection agentId={agentId} />
+
       {/* ── Temperature field (opencode only, directly below profiles) ────── */}
       {createdAdapter === "opencode" && (
         <TemperatureField agentId={agentId} />
@@ -338,8 +342,49 @@ function AgentProfilesSection({ agentId }: AgentProfilesSectionProps) {
   );
 }
 
+// ── PermissionsSection ─────────────────────────────────────────────────────
+// Shown in the Properties Panel below the Agent Profiles section.
+// Always visible once a node is selected (not gated by adapter type).
+// Contains a "Manage Permissions" button that opens the PermissionsModal portal.
+// The modal itself is mounted at the App root level via React Portal so it
+// escapes the PropertiesPanel stacking context and appears above all overlays.
+
+interface PermissionsSectionProps {
+  agentId: string;
+}
+
+function PermissionsSection({ agentId }: PermissionsSectionProps) {
+  const project = useProjectStore((s) => s.project);
+  const openPermissionsModal = useAgentFlowStore((s) => s.openPermissionsModal);
+
+  // Find agent name from the flow store for the modal subtitle
+  const agents = useAgentFlowStore((s) => s.agents);
+  const agentName = agents.find((a) => a.id === agentId)?.name ?? agentId;
+
+  if (!project) return null;
+
+  return (
+    <div className="permissions-section">
+      <div className="agent-adapter-form__section-heading">Permissions</div>
+      <button
+        type="button"
+        className="btn btn--ghost permissions-section__open-btn"
+        onClick={() =>
+          openPermissionsModal({
+            agentId,
+            agentName,
+            projectDir: project.projectDir,
+          } satisfies PermissionsModalTarget)
+        }
+        aria-label="Manage agent permissions"
+      >
+        Manage Permissions
+      </button>
+    </div>
+  );
+}
+
 // ── TemperatureField ───────────────────────────────────────────────────────
-// Rendered in the OpenCode section, directly below the Agent Profiles section.
 // Allows the user to set the temperature as a float (0.0..1.0) via a number input.
 // Shows help text, validates that the value is required and within [0.0, 1.0].
 

@@ -64,6 +64,8 @@ import type {
   AdataUpdateProfileRequest,
   AdataRemoveProfileRequest,
   AdataReorderProfilesRequest,
+  AdataGetPermissionsRequest,
+  AdataSetPermissionsRequest,
 } from "./bridge.types.ts";
 
 import {
@@ -79,6 +81,10 @@ import {
   getOpenCodeConfigFromAdata,
   OPENCODE_CONFIG_TEMPERATURE_DEFAULT,
 } from "./opencode-config-handlers.ts";
+import {
+  handleGetPermissions,
+  handleSetPermissions,
+} from "./permissions-handlers.ts";
 
 // ── Recents storage ────────────────────────────────────────────────────────
 
@@ -1083,6 +1089,39 @@ export function registerIpcHandlers(): void {
       const result = await handleReorderProfiles(nodeFileAdapter, req);
       if (!result.success) {
         console.error("[ipc] ADATA_REORDER_PROFILES: error —", result.error, result.errorCode);
+      }
+      return result;
+    }
+  );
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Permissions handlers
+  //
+  // Both handlers call pure functions in permissions-handlers.ts
+  // (testable without Electron).
+  // ══════════════════════════════════════════════════════════════════════
+
+  // ── Get permissions ────────────────────────────────────────────────────
+  ipcMain.handle(
+    IPC_CHANNELS.ADATA_GET_PERMISSIONS,
+    async (_event, req: AdataGetPermissionsRequest) => {
+      console.log("[ipc] ADATA_GET_PERMISSIONS: agentId →", req.agentId);
+      const result = await handleGetPermissions(req);
+      if (!result.success) {
+        console.error("[ipc] ADATA_GET_PERMISSIONS: error —", result.error);
+      }
+      return result;
+    }
+  );
+
+  // ── Set permissions ────────────────────────────────────────────────────
+  ipcMain.handle(
+    IPC_CHANNELS.ADATA_SET_PERMISSIONS,
+    async (_event, req: AdataSetPermissionsRequest) => {
+      console.log("[ipc] ADATA_SET_PERMISSIONS: agentId →", req.agentId, "tools →", req.permissions.length);
+      const result = await handleSetPermissions(req);
+      if (!result.success) {
+        console.error("[ipc] ADATA_SET_PERMISSIONS: error —", result.error);
       }
       return result;
     }

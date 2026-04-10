@@ -42,6 +42,8 @@ import type {
   AdataUpdateProfileRequest,
   AdataRemoveProfileRequest,
   AdataReorderProfilesRequest,
+  AdataGetPermissionsRequest,
+  AdataSetPermissionsRequest,
 } from "./bridge.types.ts";
 
 // ── Bridge implementation ─────────────────────────────────────────────────
@@ -181,6 +183,16 @@ const bridge: AgentsFlowBridge = {
 
   adataReorderProfiles(req: AdataReorderProfilesRequest) {
     return ipcRenderer.invoke(IPC_CHANNELS.ADATA_REORDER_PROFILES, req);
+  },
+
+  // ── Permissions ───────────────────────────────────────────────────────────
+
+  adataGetPermissions(req: AdataGetPermissionsRequest) {
+    return ipcRenderer.invoke(IPC_CHANNELS.ADATA_GET_PERMISSIONS, req);
+  },
+
+  adataSetPermissions(req: AdataSetPermissionsRequest) {
+    return ipcRenderer.invoke(IPC_CHANNELS.ADATA_SET_PERMISSIONS, req);
   },
 };
 

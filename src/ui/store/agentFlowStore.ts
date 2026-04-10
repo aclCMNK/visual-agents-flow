@@ -136,6 +136,19 @@ export interface ProfileModalTarget {
   projectDir: string;
 }
 
+/**
+ * Payload for the global permissions modal.
+ * When non-null, the permissions portal modal is shown above all other overlays.
+ */
+export interface PermissionsModalTarget {
+  /** The agent's UUID */
+  agentId: string;
+  /** Human-readable name for the modal subtitle */
+  agentName: string;
+  /** Absolute path to the project root */
+  projectDir: string;
+}
+
 /** Partial fields that can be updated on a link's rule */
 export interface LinkRuleFields {
   ruleType?: LinkRuleType;
@@ -193,6 +206,10 @@ export interface AgentFlowState {
    * the PropertiesPanel subtree.
    */
   profileModalTarget: ProfileModalTarget | null;
+  /**
+   * When non-null, the global Permissions modal portal is shown above all overlays.
+   */
+  permissionsModalTarget: PermissionsModalTarget | null;
 }
 
 /** Actions for the flow store */
@@ -233,10 +250,11 @@ export interface AgentFlowActions {
   /** Close the global Agent Profile modal portal */
   closeProfileModal(): void;
   /**
-   * Add a directed link from one agent to another (center-to-center).
-   * No-ops if fromAgentId === toAgentId or if an identical link already exists.
-   * Multiple links between different pairs are allowed.
+   * Open the global Permissions modal portal.
    */
+  openPermissionsModal(target: PermissionsModalTarget): void;
+  /** Close the global Permissions modal portal */
+  closePermissionsModal(): void;
   addLink(fromAgentId: string, toAgentId: string): void;
   /** Delete a link by id */
   deleteLink(id: string): void;
@@ -308,6 +326,7 @@ const initialState: AgentFlowState = {
   isDirty: false,
   isSavingGraph: false,
   profileModalTarget: null,
+  permissionsModalTarget: null,
 };
 
 // ── Store ──────────────────────────────────────────────────────────────────
@@ -415,6 +434,14 @@ export const useAgentFlowStore = create<AgentFlowStore>((set) => ({
     set({ profileModalTarget: null });
   },
 
+  openPermissionsModal(target) {
+    set({ permissionsModalTarget: target });
+  },
+
+  closePermissionsModal() {
+    set({ permissionsModalTarget: null });
+  },
+
   addLink(fromAgentId, toAgentId) {
     // Prevent self-connections
     if (fromAgentId === toAgentId) return;
@@ -517,6 +544,7 @@ export const useAgentFlowStore = create<AgentFlowStore>((set) => ({
       isDirty: false,
       isSavingGraph: false,
       profileModalTarget: null,
+      permissionsModalTarget: null,
     });
   },
 
@@ -573,6 +601,7 @@ export const useAgentFlowStore = create<AgentFlowStore>((set) => ({
       isDirty: false,
       isSavingGraph: false,
       profileModalTarget: null,
+      permissionsModalTarget: null,
     });
   },
 }));

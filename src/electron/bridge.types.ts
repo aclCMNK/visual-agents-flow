@@ -288,6 +288,17 @@ export const IPC_CHANNELS = {
 
   // Reorders the profile list by supplying an array of ids in the new order.
   ADATA_REORDER_PROFILES: "adata:reorder-profiles",
+
+  // ── Permissions channels ──────────────────────────────────────────────────
+  // These channels manage the `permissions` object inside metadata/<agentId>.adata.
+  // The object maps ungrouped permission names to values, and group names to
+  // nested objects of { perm: value }.
+
+  // Returns the full permissions object for an agent.
+  ADATA_GET_PERMISSIONS: "adata:get-permissions",
+
+  // Writes (replaces) the full permissions object for an agent.
+  ADATA_SET_PERMISSIONS: "adata:set-permissions",
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
@@ -691,6 +702,76 @@ export interface RecentProject {
   lastOpenedAt: string;
 }
 
+// ── Permissions IPC types ──────────────────────────────────────────────────
+//
+// The `permissions` object lives at the top level of each agent's .adata file.
+// It is serialized as a plain object where:
+//
+//   - Top-level string values are ungrouped permissions:
+//       { "perm": "value" }
+//
+//   - Top-level object values are grouped permissions (group → { perm: value }):
+//       { "group": { "perm": "value", ... } }
+//
+// Example:
+//   {
+//     "read": "allow",
+//     "execute": "ask",
+//     "Bash": {
+//       "run-scripts": "allow",
+//       "write-files": "deny"
+//     }
+//   }
+//
+// `value` is one of "allow" | "deny" | "ask".
+
+/** Valid permission values */
+export type PermissionValue = "allow" | "deny" | "ask";
+
+/**
+ * The permissions object shape stored under .adata.permissions.
+ *
+ * - String values represent ungrouped permissions (key → value).
+ * - Object values represent permission groups (groupName → { perm: value, ... }).
+ */
+export type PermissionsObject = Record<string, PermissionValue | Record<string, PermissionValue>>;
+
+// ── Get permissions ────────────────────────────────────────────────────────
+
+/** Request payload for ADATA_GET_PERMISSIONS */
+export interface AdataGetPermissionsRequest {
+  /** Absolute path to the project directory */
+  projectDir: string;
+  /** UUID of the agent */
+  agentId: string;
+}
+
+/** Result of reading the permissions object from a .adata file */
+export interface AdataGetPermissionsResult {
+  success: boolean;
+  /** Current permissions object. Empty object when not set. */
+  permissions: PermissionsObject;
+  error?: string;
+}
+
+// ── Set permissions ────────────────────────────────────────────────────────
+
+/** Request payload for ADATA_SET_PERMISSIONS */
+export interface AdataSetPermissionsRequest {
+  /** Absolute path to the project directory */
+  projectDir: string;
+  /** UUID of the agent */
+  agentId: string;
+  /** Full permissions object to persist */
+  permissions: PermissionsObject;
+}
+
+/** Result of writing the permissions object to a .adata file */
+export interface AdataSetPermissionsResult {
+  success: boolean;
+  error?: string;
+}
+
 // ── New-project creation types ─────────────────────────────────────────────
 
 /**
@@ -944,6 +1025,20 @@ export interface AgentsFlowBridge {
    * Returns the complete updated profile list.
    */
   adataReorderProfiles(req: AdataReorderProfilesRequest): Promise<AdataReorderProfilesResult>;
+
+  // ── Permissions ───────────────────────────────────────────────────────────
+
+  /**
+   * Reads the permissions object from the agent's .adata file.
+   * Returns an empty object when no permissions are set.
+   */
+  adataGetPermissions(req: AdataGetPermissionsRequest): Promise<AdataGetPermissionsResult>;
+
+  /**
+   * Writes (replaces) the full permissions object in the agent's .adata file.
+   * Stored under the 'permissions' top-level key as a plain object.
+   */
+  adataSetPermissions(req: AdataSetPermissionsRequest): Promise<AdataSetPermissionsResult>;
 }
 
 // ── Global type augmentation ──────────────────────────────────────────────

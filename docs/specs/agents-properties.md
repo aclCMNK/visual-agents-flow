@@ -57,17 +57,20 @@ Vamos a crear un formulario para configurar los agentes en diferentes adaptadore
                     - Ask, con valor internamente "ask"
             4.2.3. Boton eliminar "Delete" - Tipo botón
     4. Permisos "Permissions" - Tipo grupo
-        4.1 Boton agregar "Add" - Tipo botón
-        4.2 Cuando se agrega, se crea un fila con los siguientes campos:
-            4.2.1. Nombre herramienta "ToolName" - Tipo texto
-            4.2.2. Valor herramienta "ToolValue" - Tipo selector
-                4.2.2.1. Opciones:
-                    - True, con valor internamente "true"
-                    - False, con valor internamente "false"
-                    - Allow, con valor internamente "allow"
-                    - Deny, con valor internamente "deny"
-                    - Ask, con valor internamente "ask"
-            4.2.3. Boton eliminar "Delete" - Tipo botón
+        - UIX: Parecido a la propiedad de perfilamiento.
+            - Debe haber un boton que despliegue un modal para agregar permisos
+        UIX-Modal:
+            - Boton agregar "Add tool" - Tipo botón
+                - Campo "ToolName" - Tipo texto: Nombre que agrupa permisos
+                - Boton agregar "Add permission" - Tipo botón: Agrega una fila descrita en (A)
+                - (A) Cuando se agrega, se crea un fila con los siguientes campos:
+                    4.2.1. Nombre herramienta "ToolName" - Tipo texto
+                    4.2.2. Valor herramienta "ToolValue" - Tipo selector
+                        4.2.2.1. Opciones:
+                            - Allow, con valor internamente "allow"
+                            - Deny, con valor internamente "deny"
+                            - Ask, con valor internamente "ask"
+                    4.2.3. Boton eliminar "Delete" - Tipo botón
         - Crear aquí un grupo o sección especial para asignación de permisos de skills:
             - Colocar un botón para agregar un subgrupo de campos
                 - Al clickear en agregar, se debe mostrar un botón adicional que despliegue un modal.

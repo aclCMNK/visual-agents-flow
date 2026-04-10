@@ -46,6 +46,7 @@ import { AgentEditModal } from "./components/AgentEditModal.tsx";
 import { AssetPanel } from "./components/AssetPanel/index.ts";
 import { PropertiesPanel } from "./components/PropertiesPanel.tsx";
 import { AgentProfileModal } from "./components/AgentProfiling/AgentProfileModal.tsx";
+import { PermissionsModal } from "./components/Permissions/index.ts";
 
 // ── Load Toast ─────────────────────────────────────────────────────────────
 // Shown after a project load operation completes (success or error).
@@ -369,6 +370,11 @@ export function App() {
   const profileModalTarget = useAgentFlowStore((s) => s.profileModalTarget);
   const closeProfileModal  = useAgentFlowStore((s) => s.closeProfileModal);
 
+  // ── Global Permissions modal portal ─────────────────────────────────────
+  // Same pattern as AgentProfileModal — mounted at document.body level.
+  const permissionsModalTarget = useAgentFlowStore((s) => s.permissionsModalTarget);
+  const closePermissionsModal  = useAgentFlowStore((s) => s.closePermissionsModal);
+
   // ── Toast state (project load success / error) ───────────────────────────
   const [loadToast, setLoadToast] = useState<LoadToast | null>(null);
 
@@ -459,6 +465,19 @@ export function App() {
             agentName={profileModalTarget.agentName}
             projectDir={profileModalTarget.projectDir}
             onClose={closeProfileModal}
+          />,
+          document.body
+        )}
+
+      {/* ── Permissions modal — global portal, above ALL overlays ──────── */}
+      {/* Same portal pattern as AgentProfileModal.                        */}
+      {permissionsModalTarget !== null &&
+        createPortal(
+          <PermissionsModal
+            agentId={permissionsModalTarget.agentId}
+            agentName={permissionsModalTarget.agentName}
+            projectDir={permissionsModalTarget.projectDir}
+            onClose={closePermissionsModal}
           />,
           document.body
         )}
