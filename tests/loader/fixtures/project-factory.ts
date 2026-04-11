@@ -30,7 +30,7 @@ export function makeAfproj(overrides: Partial<Afproj> = {}): Afproj {
     agents: [
       {
         id: AGENT_A_ID,
-        name: "Support Agent",
+        name: "support-agent",
         profilePath: `behaviors/${AGENT_A_ID}/profile.md`,
         adataPath: `metadata/${AGENT_A_ID}.adata`,
         isEntrypoint: true,
@@ -38,7 +38,7 @@ export function makeAfproj(overrides: Partial<Afproj> = {}): Afproj {
       },
       {
         id: AGENT_B_ID,
-        name: "Classifier Agent",
+        name: "classifier-agent",
         profilePath: `behaviors/${AGENT_B_ID}/profile.md`,
         adataPath: `metadata/${AGENT_B_ID}.adata`,
         isEntrypoint: false,
@@ -65,7 +65,7 @@ export function makeAdataA(overrides: Partial<Adata> = {}): Adata {
   return {
     version: 1,
     agentId: AGENT_A_ID,
-    agentName: "Support Agent",
+    agentName: "support-agent",
     description: "Handles support tickets",
     aspects: [
       {
@@ -88,7 +88,7 @@ export function makeAdataA(overrides: Partial<Adata> = {}): Adata {
     subagents: [
       {
         id: SUBAGENT_ID,
-        name: "Ticket Classifier",
+        name: "ticket-classifier",
         description: "Classifies tickets",
         profilePath: `behaviors/${AGENT_A_ID}/classifier-subagent.md`,
         aspects: [],
@@ -109,7 +109,7 @@ export function makeAdataB(overrides: Partial<Adata> = {}): Adata {
   return {
     version: 1,
     agentId: AGENT_B_ID,
-    agentName: "Classifier Agent",
+    agentName: "classifier-agent",
     description: "Routes tickets",
     aspects: [
       {

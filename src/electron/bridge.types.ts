@@ -306,6 +306,12 @@ export const IPC_CHANNELS = {
 
   // Returns a sorted list of skill names found under {projectDir}/skills/.
   ADATA_LIST_SKILLS: "adata:list-skills",
+
+  // ── Agent rename (slug-first) ──────────────────────────────────────────────
+  // Renames the behaviors/<oldSlug> folder to behaviors/<newSlug> on disk,
+  // and rewrites all path references inside the agent's .adata file so they
+  // point to the new folder. Also updates agentName inside .adata.
+  RENAME_AGENT_FOLDER: "agent:rename-folder",
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
@@ -821,6 +827,42 @@ export interface AdataListSkillsResult {
   error?: string;
 }
 
+// ── Agent rename (slug-first) IPC types ───────────────────────────────────
+//
+// When the user renames an agent, the new name is immediately converted to a
+// slug and stored as the agent name. On disk, the behaviors/<oldSlug> folder
+// is renamed to behaviors/<newSlug> and all path references inside the agent's
+// .adata file are updated accordingly.
+
+/**
+ * Request payload for the RENAME_AGENT_FOLDER channel.
+ */
+export interface RenameAgentFolderRequest {
+  /** Absolute path to the project directory */
+  projectDir: string;
+  /** UUID of the agent */
+  agentId: string;
+  /** The old slug (current behaviors folder name, e.g. "old-agent") */
+  oldSlug: string;
+  /** The new slug (target behaviors folder name, e.g. "new-agent") */
+  newSlug: string;
+}
+
+/**
+ * Result of renaming the agent's behaviors folder.
+ */
+export interface RenameAgentFolderResult {
+  success: boolean;
+  error?: string;
+  /**
+   * Error code for programmatic handling:
+   *   "CONFLICT"       — the target slug folder already exists
+   *   "NOT_FOUND"      — the old slug folder does not exist (non-fatal if new folder already correct)
+   *   "IO_ERROR"       — generic filesystem error
+   */
+  errorCode?: "CONFLICT" | "NOT_FOUND" | "IO_ERROR";
+}
+
 // ── New-project creation types ─────────────────────────────────────────────
 
 /**
@@ -1097,6 +1139,15 @@ export interface AgentsFlowBridge {
    * Returns an empty array when the skills directory does not exist.
    */
   adataListSkills(req: AdataListSkillsRequest): Promise<AdataListSkillsResult>;
+
+  // ── Agent rename (slug-first) ─────────────────────────────────────────────
+
+  /**
+   * Renames the behaviors/<oldSlug> folder to behaviors/<newSlug> on disk.
+   * Updates all path references inside the agent's .adata file.
+   * Returns CONFLICT if the target folder already exists.
+   */
+  renameAgentFolder(req: RenameAgentFolderRequest): Promise<RenameAgentFolderResult>;
 }
 
 // ── Global type augmentation ──────────────────────────────────────────────

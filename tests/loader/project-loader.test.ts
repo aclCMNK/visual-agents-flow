@@ -110,7 +110,7 @@ describe('ProjectLoader — mode: "load" (happy path)', () => {
 
     const agentA = project.agents.get(AGENT_A_ID);
     expect(agentA?.subagents).toHaveLength(1);
-    expect(agentA?.subagents[0]?.name).toBe("Ticket Classifier");
+    expect(agentA?.subagents[0]?.name).toBe("ticket-classifier");
   });
 
   it("skips behavior file loading when loadBehaviorFiles: false", async () => {
@@ -218,7 +218,7 @@ describe("ProjectLoader — cross-validation failures", () => {
         agents: [
           {
             id: AGENT_A_ID,
-            name: "Support Agent",
+            name: "support-agent",
             profilePath: `behaviors/${AGENT_A_ID}/profile.md`,
             adataPath: `metadata/${AGENT_A_ID}.adata`,
             isEntrypoint: false, // no entrypoint
@@ -260,7 +260,7 @@ describe('ProjectLoader — mode: "dry-run"', () => {
         agents: [
           {
             id: AGENT_A_ID,
-            name: "Agent A",
+            name: "agent-a",
             profilePath: `behaviors/${AGENT_A_ID}/profile.md`,
             adataPath: `metadata/${AGENT_A_ID}.adata`,
             isEntrypoint: false,
@@ -294,7 +294,7 @@ describe('ProjectLoader — mode: "repair"', () => {
         agents: [
           {
             id: AGENT_A_ID,
-            name: "Agent A",
+            name: "agent-a",
             profilePath: `behaviors/${AGENT_A_ID}/profile.md`,
             adataPath: `metadata/${AGENT_A_ID}.adata`,
             isEntrypoint: false, // will be repaired

@@ -12,6 +12,25 @@
 
 import { z } from "zod";
 
+// ── Slug validation ────────────────────────────────────────────────────────
+
+/**
+ * Shared slug schema for agent and subagent names.
+ * Only lowercase alphanumeric characters and hyphens are allowed.
+ * Must not start or end with a hyphen, and must be 2–64 characters.
+ *
+ * Valid:   "my-agent", "agent-01", "ab"
+ * Invalid: "My Agent", "SupportAgent", "-agent", "agent-", "a"
+ */
+const agentSlugSchema = z
+  .string()
+  .min(2, "name must be at least 2 characters")
+  .max(64, "name must be at most 64 characters")
+  .regex(
+    /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/,
+    "name must be a slug: lowercase letters, digits, and hyphens only, no leading/trailing hyphens"
+  );
+
 // ── Behavior / Aspect reference ────────────────────────────────────────────
 
 /**
@@ -67,7 +86,7 @@ export const SkillRefSchema = z.object({
  */
 export const SubagentDeclSchema = z.object({
   id: z.guid(),
-  name: z.string().min(1).max(100),
+  name: agentSlugSchema,
   description: z.string().max(500).default(""),
   /** Relative path to the subagent's profile markdown */
   profilePath: z
@@ -92,8 +111,8 @@ export const AdataSchema = z.object({
    * Must match the corresponding AgentRef.id in .afproj.
    */
   agentId: z.guid(),
-  /** Display name — must match the AgentRef.name in .afproj */
-  agentName: z.string().min(1).max(100),
+  /** Slug name — must match the AgentRef.name in .afproj */
+  agentName: agentSlugSchema,
   description: z.string().max(1000).default(""),
   /**
    * Ordered list of behavior aspect references.

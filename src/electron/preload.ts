@@ -45,6 +45,7 @@ import type {
   AdataGetPermissionsRequest,
   AdataSetPermissionsRequest,
   AdataListSkillsRequest,
+  RenameAgentFolderRequest,
 } from "./bridge.types.ts";
 
 // ── Bridge implementation ─────────────────────────────────────────────────
@@ -200,6 +201,12 @@ const bridge: AgentsFlowBridge = {
 
   adataListSkills(req: AdataListSkillsRequest) {
     return ipcRenderer.invoke(IPC_CHANNELS.ADATA_LIST_SKILLS, req);
+  },
+
+  // ── Agent rename (slug-first) ─────────────────────────────────────────────
+
+  renameAgentFolder(req: RenameAgentFolderRequest) {
+    return ipcRenderer.invoke(IPC_CHANNELS.RENAME_AGENT_FOLDER, req);
   },
 };
 

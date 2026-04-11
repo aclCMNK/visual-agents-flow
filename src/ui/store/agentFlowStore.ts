@@ -23,6 +23,7 @@
 
 import { create } from "zustand";
 import type { SerializableProjectModel } from "../../electron/bridge.types.ts";
+import { slugify, toSlug } from "../utils/slugUtils.ts";
 
 /** Simple UUID-v4 generator (no external deps) */
 function uuid(): string {
@@ -339,21 +340,24 @@ export const useAgentFlowStore = create<AgentFlowStore>((set) => ({
   },
 
   commitPlacement(x, y) {
-    const newAgent: CanvasAgent = {
-      id: uuid(),
-      name: "New Agent",
-      description: "",
-      type: "Agent",
-      isOrchestrator: false,
-      hidden: false,
-      x,
-      y,
-    };
-    set((state) => ({
-      agents: [...state.agents, newAgent],
-      isPlacing: false,
-      isDirty: true,
-    }));
+    set((state) => {
+      const existingSlugs = state.agents.map((a) => a.name);
+      const newAgent: CanvasAgent = {
+        id: uuid(),
+        name: slugify("new-agent", existingSlugs),
+        description: "",
+        type: "Agent",
+        isOrchestrator: false,
+        hidden: false,
+        x,
+        y,
+      };
+      return {
+        agents: [...state.agents, newAgent],
+        isPlacing: false,
+        isDirty: true,
+      };
+    });
   },
 
   cancelPlacement() {
@@ -361,12 +365,16 @@ export const useAgentFlowStore = create<AgentFlowStore>((set) => ({
   },
 
   renameAgent(id, newName) {
-    set((state) => ({
-      agents: state.agents.map((a) =>
-        a.id === id ? { ...a, name: newName.trim() || a.name } : a
-      ),
-      isDirty: true,
-    }));
+    set((state) => {
+      const slug = toSlug(newName.trim());
+      if (!slug) return {}; // empty slug → no-op
+      return {
+        agents: state.agents.map((a) =>
+          a.id === id ? { ...a, name: slug } : a
+        ),
+        isDirty: true,
+      };
+    });
   },
 
   updateAgent(id, fields) {
@@ -374,9 +382,14 @@ export const useAgentFlowStore = create<AgentFlowStore>((set) => ({
       agents: state.agents.map((a) => {
         if (a.id !== id) return a;
         const nextType = fields.type !== undefined ? fields.type : a.type;
+        let nextName = a.name;
+        if (fields.name !== undefined) {
+          const slug = toSlug(fields.name.trim());
+          nextName = slug || a.name; // fall back to existing slug if transform yields empty
+        }
         return {
           ...a,
-          name: fields.name !== undefined ? fields.name.trim() || a.name : a.name,
+          name: nextName,
           description: fields.description !== undefined ? fields.description : a.description,
           type: nextType,
           // isOrchestrator is only persisted when type is Agent; reset to false for Sub-Agent

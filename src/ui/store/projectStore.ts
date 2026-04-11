@@ -76,6 +76,13 @@ const _stub: AgentsFlowBridge = {
   adataUpdateProfile: () => notAvailable("adataUpdateProfile"),
   adataRemoveProfile: () => notAvailable("adataRemoveProfile"),
   adataReorderProfiles: () => notAvailable("adataReorderProfiles"),
+  // Permissions
+  adataGetPermissions: () => notAvailable("adataGetPermissions"),
+  adataSetPermissions: () => notAvailable("adataSetPermissions"),
+  // Skills
+  adataListSkills: () => notAvailable("adataListSkills"),
+  // Agent rename (slug-first)
+  renameAgentFolder: () => notAvailable("renameAgentFolder"),
 };
 
 function getBridge(): AgentsFlowBridge {

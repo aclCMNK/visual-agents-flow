@@ -11,6 +11,22 @@
 
 import { z } from "zod";
 
+// ── Slug validation ────────────────────────────────────────────────────────
+
+/**
+ * Shared slug schema for agent names in .afproj agent references.
+ * Only lowercase alphanumeric characters and hyphens are allowed.
+ * Must not start or end with a hyphen, and must be 2–64 characters.
+ */
+const agentSlugSchema = z
+  .string()
+  .min(2, "name must be at least 2 characters")
+  .max(64, "name must be at most 64 characters")
+  .regex(
+    /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/,
+    "name must be a slug: lowercase letters, digits, and hyphens only, no leading/trailing hyphens"
+  );
+
 // ── Connection / Edge ──────────────────────────────────────────────────────
 
 /**
@@ -37,7 +53,7 @@ export const ConnectionSchema = z.object({
  */
 export const AgentRefSchema = z.object({
   id: z.guid(),
-  name: z.string().min(1).max(100),
+  name: agentSlugSchema,
   /** Relative path to the primary profile markdown file */
   profilePath: z
     .string()

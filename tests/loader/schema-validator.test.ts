@@ -180,7 +180,7 @@ describe("validateAdata", () => {
   it("applies defaults for optional fields", () => {
     const raw = {
       agentId: AGENT_A_ID,
-      agentName: "Test",
+      agentName: "test-agent",
       profilePath: `behaviors/${AGENT_A_ID}/profile.md`,
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
@@ -258,5 +258,129 @@ describe("hasAdataIdentity", () => {
 
   it("returns false for null", () => {
     expect(hasAdataIdentity(null)).toBe(false);
+  });
+});
+
+// ── Slug validation in schemas ─────────────────────────────────────────────
+
+describe("AgentRefSchema — slug-only agent name", () => {
+  it("accepts a valid slug as agent name in .afproj", () => {
+    const raw = makeAfproj({
+      agents: [
+        {
+          id: AGENT_A_ID,
+          name: "support-agent",
+          profilePath: `behaviors/${AGENT_A_ID}/profile.md`,
+          adataPath: `metadata/${AGENT_A_ID}.adata`,
+          isEntrypoint: true,
+        },
+      ],
+    });
+    const result = validateAfproj(raw, "test.afproj");
+
+    expect(result.success).toBe(true);
+    expect(result.data?.agents[0]?.name).toBe("support-agent");
+  });
+
+  it("rejects a free-text (non-slug) agent name in .afproj", () => {
+    const raw = makeAfproj({
+      agents: [
+        {
+          id: AGENT_A_ID,
+          name: "Support Agent",
+          profilePath: `behaviors/${AGENT_A_ID}/profile.md`,
+          adataPath: `metadata/${AGENT_A_ID}.adata`,
+          isEntrypoint: true,
+        },
+      ],
+    });
+    const result = validateAfproj(raw, "test.afproj");
+
+    expect(result.success).toBe(false);
+    const nameIssue = result.issues.find((i) => i.message.toLowerCase().includes("name"));
+    expect(nameIssue).toBeDefined();
+  });
+
+  it("rejects an agent name with uppercase letters in .afproj", () => {
+    const raw = makeAfproj({
+      agents: [
+        {
+          id: AGENT_A_ID,
+          name: "SupportAgent",
+          profilePath: `behaviors/${AGENT_A_ID}/profile.md`,
+          adataPath: `metadata/${AGENT_A_ID}.adata`,
+          isEntrypoint: true,
+        },
+      ],
+    });
+    const result = validateAfproj(raw, "test.afproj");
+
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("AdataSchema — slug-only agentName", () => {
+  it("accepts a valid slug as agentName in .adata", () => {
+    const raw = { ...makeAdataA(), agentName: "support-agent" };
+    const result = validateAdata(raw, `metadata/${AGENT_A_ID}.adata`);
+
+    expect(result.success).toBe(true);
+    expect(result.data?.agentName).toBe("support-agent");
+  });
+
+  it("rejects a free-text (non-slug) agentName in .adata", () => {
+    const raw = { ...makeAdataA(), agentName: "Support Agent" };
+    const result = validateAdata(raw, `metadata/${AGENT_A_ID}.adata`);
+
+    expect(result.success).toBe(false);
+    const nameIssue = result.issues.find((i) => i.message.toLowerCase().includes("agentname"));
+    expect(nameIssue).toBeDefined();
+  });
+
+  it("rejects agentName with uppercase in .adata", () => {
+    const raw = { ...makeAdataA(), agentName: "SupportAgent" };
+    const result = validateAdata(raw, `metadata/${AGENT_A_ID}.adata`);
+
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("SubagentDeclSchema — slug-only subagent name", () => {
+  it("accepts a valid slug as subagent name", () => {
+    const raw = makeAdataA({
+      subagents: [
+        {
+          id: "d4e5f6a7-b8c9-0123-defa-123456789003",
+          name: "ticket-classifier",
+          description: "Classifies tickets",
+          profilePath: `behaviors/${AGENT_A_ID}/classifier-subagent.md`,
+          aspects: [],
+          skills: [],
+          metadata: {},
+        },
+      ],
+    });
+    const result = validateAdata(raw, `metadata/${AGENT_A_ID}.adata`);
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a free-text subagent name", () => {
+    const raw = makeAdataA({
+      subagents: [
+        {
+          id: "d4e5f6a7-b8c9-0123-defa-123456789003",
+          name: "Ticket Classifier",
+          description: "Classifies tickets",
+          profilePath: `behaviors/${AGENT_A_ID}/classifier-subagent.md`,
+          aspects: [],
+          skills: [],
+          metadata: {},
+        },
+      ],
+    });
+    const result = validateAdata(raw, `metadata/${AGENT_A_ID}.adata`);
+
+    expect(result.success).toBe(false);
   });
 });

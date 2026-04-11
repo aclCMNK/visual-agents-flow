@@ -67,6 +67,8 @@ import type {
   AdataGetPermissionsRequest,
   AdataSetPermissionsRequest,
   AdataListSkillsRequest,
+  RenameAgentFolderRequest,
+  RenameAgentFolderResult,
 } from "./bridge.types.ts";
 
 import {
@@ -90,6 +92,7 @@ import {
   handleSetPermissions,
 } from "./permissions-handlers.ts";
 import { handleListSkills } from "./skills-handlers.ts";
+import { handleRenameAgentFolder } from "./rename-agent-folder.ts";
 
 // ── Recents storage ────────────────────────────────────────────────────────
 
@@ -518,7 +521,7 @@ export function registerIpcHandlers(): void {
         const agentRefs = req.agents.map((node: AgentGraphNode) => ({
           id: node.id,
           name: node.name,
-          profilePath: `behaviors/${node.id}/profile.md`,
+          profilePath: `behaviors/${node.name}/profile.md`,
           adataPath: `metadata/${node.id}.adata`,
           isEntrypoint: node.type === "Agent" && node.isOrchestrator,
           position: { x: node.x, y: node.y },
@@ -576,7 +579,13 @@ export function registerIpcHandlers(): void {
             aspects: (existing.aspects as unknown[]) ?? [],
             skills: (existing.skills as unknown[]) ?? [],
             subagents: (existing.subagents as unknown[]) ?? [],
-            profilePath: `behaviors/${node.id}/profile.md`,
+            // Use existing profilePath if set (RENAME_AGENT_FOLDER may have updated it),
+            // otherwise fall back to the slug-based default.
+            profilePath: (typeof existing.profilePath === "string" && existing.profilePath.length > 0)
+              ? existing.profilePath
+              : `behaviors/${node.name}/profile.md`,
+            // Preserve existing profile[] entries (managed by RENAME_AGENT_FOLDER / profile handlers)
+            profile: (existing.profile as unknown[]) ?? [],
             metadata: {
               ...((existing.metadata as Record<string, unknown>) ?? {}),
               agentType: node.type,
@@ -591,8 +600,8 @@ export function registerIpcHandlers(): void {
           await atomicWriteJson(adataPath, adata);
           console.log("[ipc] SAVE_AGENT_GRAPH: .adata written →", adataPath);
 
-          // Ensure the behaviors/<uuid>/ directory and profile.md exist
-          const agentBehaviorDir = join(behaviorsDir, node.id);
+          // Ensure the behaviors/<slug>/ directory and profile.md exist
+          const agentBehaviorDir = join(behaviorsDir, node.name);
           await mkdir(agentBehaviorDir, { recursive: true });
           const profilePath = join(agentBehaviorDir, "profile.md");
           // Only create profile.md if it doesn't already exist
@@ -1167,6 +1176,29 @@ export function registerIpcHandlers(): void {
       const result = await handleListSkills(req);
       if (!result.success) {
         console.error("[ipc] ADATA_LIST_SKILLS: error —", result.error);
+      }
+      return result;
+    }
+  );
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Agent rename (slug-first)
+  //
+  // Renames behaviors/<oldSlug> → behaviors/<newSlug> on disk and
+  // updates all path references inside the agent's .adata file.
+  // ══════════════════════════════════════════════════════════════════════
+
+  ipcMain.handle(
+    IPC_CHANNELS.RENAME_AGENT_FOLDER,
+    async (_event, req: RenameAgentFolderRequest): Promise<RenameAgentFolderResult> => {
+      console.log(
+        `[ipc] RENAME_AGENT_FOLDER: agentId=${req.agentId} ${req.oldSlug} → ${req.newSlug}`,
+      );
+      const result = await handleRenameAgentFolder(req);
+      if (!result.success) {
+        console.error("[ipc] RENAME_AGENT_FOLDER: error —", result.error);
+      } else {
+        console.log(`[ipc] RENAME_AGENT_FOLDER: complete — ${req.newSlug}`);
       }
       return result;
     }
