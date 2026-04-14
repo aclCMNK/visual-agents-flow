@@ -321,6 +321,22 @@ export const IPC_CHANNELS = {
   // and rewrites all path references inside the agent's .adata file so they
   // point to the new folder. Also updates agentName inside .adata.
   RENAME_AGENT_FOLDER: "agent:rename-folder",
+
+  // ── OpenCode export ─────────────────────────────────────────────────────────
+  // Opens a native folder picker dialog for selecting the export destination directory.
+  SELECT_EXPORT_DIR: "dialog:selectExportDir",
+
+  // Writes the generated OpenCode config (JSON/JSONC) to the chosen directory.
+  WRITE_EXPORT_FILE: "export:writeFile",
+
+  // Lists all skill .md files and their contents under {projectDir}/skills/
+  LIST_SKILLS_FULL: "export:listSkillsFull",
+
+  // Reads the profile .md files for a given agent (all profile entries by order)
+  READ_AGENT_PROFILES_FULL: "export:readAgentProfilesFull",
+
+  // Reads the raw .adata object for a given agent (for properties display)
+  READ_AGENT_ADATA_RAW: "export:readAgentAdataRaw",
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
@@ -952,6 +968,89 @@ export interface CreateProjectResult {
 // ── Window.agentsFlow API shape ───────────────────────────────────────────
 // This is what window.agentsFlow looks like after the preload runs.
 
+// ── Export IPC types ───────────────────────────────────────────────────────
+
+/** Result of selecting an export destination directory */
+export interface SelectExportDirResult {
+  /** The chosen directory path, or null if cancelled */
+  dirPath: string | null;
+}
+
+/** Request to write the OpenCode export config to disk */
+export interface WriteExportFileRequest {
+  /** Absolute path to the destination directory */
+  destDir: string;
+  /** The filename (e.g. "opencode.json" or "opencode.jsonc") */
+  fileName: string;
+  /** The file content (JSON string) */
+  content: string;
+}
+
+/** Result of writing the export file */
+export interface WriteExportFileResult {
+  success: boolean;
+  /** The final absolute path of the written file */
+  filePath?: string;
+  error?: string;
+}
+
+/** A skill entry with both name and content */
+export interface SkillFullEntry {
+  /** Skill name (e.g. "kb-search") */
+  name: string;
+  /** Relative path from project root to the SKILL.md */
+  relativePath: string;
+  /** Content of the SKILL.md file */
+  content: string;
+}
+
+/** Request to list all skills with full content */
+export interface ListSkillsFullRequest {
+  /** Absolute path to the project directory */
+  projectDir: string;
+}
+
+/** Result of listing all skills with full content */
+export interface ListSkillsFullResult {
+  success: boolean;
+  skills: SkillFullEntry[];
+  error?: string;
+}
+
+/** Request to read all profile .md files for an agent */
+export interface ReadAgentProfilesFullRequest {
+  /** Absolute path to the project directory */
+  projectDir: string;
+  /** UUID of the agent */
+  agentId: string;
+}
+
+/** Result of reading all profile .md files for an agent */
+export interface ReadAgentProfilesFullResult {
+  success: boolean;
+  /** Concatenated content of all profile .md files (by order) */
+  concatenatedContent: string;
+  /** Individual profile contents in order */
+  profiles: Array<{ filePath: string; selector: string; label?: string; content: string }>;
+  error?: string;
+}
+
+/** Request to read the raw .adata object for an agent */
+export interface ReadAgentAdataRawRequest {
+  /** Absolute path to the project directory */
+  projectDir: string;
+  /** UUID of the agent */
+  agentId: string;
+}
+
+/** Result of reading the raw .adata object */
+export interface ReadAgentAdataRawResult {
+  success: boolean;
+  /** The raw .adata content as a plain object */
+  adata: Record<string, unknown> | null;
+  error?: string;
+}
+
 export interface AgentsFlowBridge {
   /**
    * Opens a native folder picker dialog.
@@ -1163,6 +1262,39 @@ export interface AgentsFlowBridge {
    * Returns CONFLICT if the target folder already exists.
    */
   renameAgentFolder(req: RenameAgentFolderRequest): Promise<RenameAgentFolderResult>;
+
+  // ── Export ────────────────────────────────────────────────────────────────
+
+  /**
+   * Opens a native folder picker dialog for selecting the export destination.
+   * Returns the chosen directory path, or null if cancelled.
+   */
+  selectExportDir(): Promise<SelectExportDirResult>;
+
+  /**
+   * Writes the generated export config file to the chosen directory.
+   * Returns the final absolute path of the written file.
+   */
+  writeExportFile(req: WriteExportFileRequest): Promise<WriteExportFileResult>;
+
+  /**
+   * Lists all SKILL.md files under {projectDir}/skills/ with their content.
+   * Used by the Export modal Skills tab.
+   */
+  listSkillsFull(req: ListSkillsFullRequest): Promise<ListSkillsFullResult>;
+
+  /**
+   * Reads all profile .md files for an agent, sorted by order.
+   * Returns concatenated content and individual file contents.
+   * Used by the Export modal Agents tab.
+   */
+  readAgentProfilesFull(req: ReadAgentProfilesFullRequest): Promise<ReadAgentProfilesFullResult>;
+
+  /**
+   * Reads the raw .adata JSON object for an agent.
+   * Used by the Export modal Agents tab properties preview.
+   */
+  readAgentAdataRaw(req: ReadAgentAdataRawRequest): Promise<ReadAgentAdataRawResult>;
 }
 
 // ── Global type augmentation ──────────────────────────────────────────────

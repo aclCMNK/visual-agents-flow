@@ -83,6 +83,12 @@ const _stub: AgentsFlowBridge = {
   adataListSkills: () => notAvailable("adataListSkills"),
   // Agent rename (slug-first)
   renameAgentFolder: () => notAvailable("renameAgentFolder"),
+  // Export modal
+  selectExportDir: () => notAvailable("selectExportDir"),
+  writeExportFile: () => notAvailable("writeExportFile"),
+  listSkillsFull: () => notAvailable("listSkillsFull"),
+  readAgentProfilesFull: () => notAvailable("readAgentProfilesFull"),
+  readAgentAdataRaw: () => notAvailable("readAgentAdataRaw"),
 };
 
 function getBridge(): AgentsFlowBridge {

@@ -47,6 +47,7 @@ import { AssetPanel } from "./components/AssetPanel/index.ts";
 import { PropertiesPanel } from "./components/PropertiesPanel.tsx";
 import { AgentProfileModal } from "./components/AgentProfiling/AgentProfileModal.tsx";
 import { PermissionsModal } from "./components/Permissions/index.ts";
+import { ExportModal } from "./components/ExportModal/index.ts";
 
 // ── Load Toast ─────────────────────────────────────────────────────────────
 // Shown after a project load operation completes (success or error).
@@ -115,6 +116,7 @@ function EditorView() {
   const startPlacement = useAgentFlowStore((s) => s.startPlacement);
   const userNode = useAgentFlowStore((s) => s.userNode);
   const addUserNode = useAgentFlowStore((s) => s.addUserNode);
+  const openExportModal = useAgentFlowStore((s) => s.openExportModal);
 
   const issueCount = lastLoadResult?.issues.length ?? 0;
   const errorCount = lastLoadResult?.summary.errors ?? 0;
@@ -169,10 +171,9 @@ function EditorView() {
           </button>
           <AgentGraphSaveButton />
           <button
-            className="editor-view__topbar-btn editor-view__topbar-btn--disabled"
-            disabled
-            aria-disabled="true"
-            title="Export is not yet available"
+            className="editor-view__topbar-btn"
+            onClick={openExportModal}
+            title="Export project as OpenCode configuration"
           >
             Export JSON
           </button>
@@ -397,6 +398,11 @@ export function App() {
   const permissionsModalTarget = useAgentFlowStore((s) => s.permissionsModalTarget);
   const closePermissionsModal  = useAgentFlowStore((s) => s.closePermissionsModal);
 
+  // ── Global Export modal portal ───────────────────────────────────────────
+  // Same portal pattern — mounted at document.body level.
+  const exportModalOpen    = useAgentFlowStore((s) => s.exportModalOpen);
+  const closeExportModal   = useAgentFlowStore((s) => s.closeExportModal);
+
   // ── Toast state (project load success / error) ───────────────────────────
   const [loadToast, setLoadToast] = useState<LoadToast | null>(null);
 
@@ -501,6 +507,14 @@ export function App() {
             projectDir={permissionsModalTarget.projectDir}
             onClose={closePermissionsModal}
           />,
+          document.body
+        )}
+
+      {/* ── Export modal — global portal, above ALL overlays ────────────── */}
+      {/* Same portal pattern as AgentProfileModal and PermissionsModal.   */}
+      {exportModalOpen &&
+        createPortal(
+          <ExportModal onClose={closeExportModal} />,
           document.body
         )}
     </div>

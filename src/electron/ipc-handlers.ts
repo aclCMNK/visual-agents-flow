@@ -69,6 +69,15 @@ import type {
   AdataListSkillsRequest,
   RenameAgentFolderRequest,
   RenameAgentFolderResult,
+  WriteExportFileRequest,
+  WriteExportFileResult,
+  ListSkillsFullRequest,
+  ListSkillsFullResult,
+  ReadAgentProfilesFullRequest,
+  ReadAgentProfilesFullResult,
+  ReadAgentAdataRawRequest,
+  ReadAgentAdataRawResult,
+  SelectExportDirResult,
 } from "./bridge.types.ts";
 
 import {
@@ -251,6 +260,130 @@ function toBridgeLoadResult(result: LoadResult): BridgeLoadResult {
     timestamp: result.timestamp,
     durationMs: result.durationMs,
   };
+}
+
+// ── Export helpers ─────────────────────────────────────────────────────────
+
+/**
+ * Recursively scans `skillsDir` for SKILL.md files and returns each skill's
+ * name, relative path, and full content.
+ *
+ * Returns [] if `skillsDir` does not exist.
+ */
+async function listSkillsFullFromDir(skillsDir: string): Promise<Array<{
+  name: string;
+  relativePath: string;
+  content: string;
+}>> {
+  const results: Array<{ name: string; relativePath: string; content: string }> = [];
+
+  // Check directory exists
+  try {
+    const s = await stat(skillsDir);
+    if (!s.isDirectory()) return [];
+  } catch {
+    return [];
+  }
+
+  async function walk(dir: string): Promise<void> {
+    let entries: string[];
+    try {
+      entries = await readdir(dir);
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      const fullPath = join(dir, entry);
+      let info;
+      try {
+        info = await stat(fullPath);
+      } catch {
+        continue;
+      }
+
+      if (info.isDirectory()) {
+        const skillMdPath = join(fullPath, "SKILL.md");
+        try {
+          const skillStat = await stat(skillMdPath);
+          if (skillStat.isFile()) {
+            // Calculate name from relative path (dash-joined)
+            const rel = skillMdPath.slice(skillsDir.length + 1); // e.g. "kb-search/SKILL.md"
+            const dirRel = rel.slice(0, rel.length - "/SKILL.md".length);
+            const name = dirRel.split("/").join("-");
+            const content = await readFile(skillMdPath, "utf-8");
+            results.push({ name, relativePath: rel, content });
+          }
+        } catch {
+          // ignore
+        }
+        await walk(fullPath);
+      }
+    }
+  }
+
+  await walk(skillsDir);
+  results.sort((a, b) => a.name.localeCompare(b.name));
+  return results;
+}
+
+/**
+ * Reads all enabled profile .md files for an agent (in order) and
+ * returns their individual contents + a concatenated version.
+ */
+async function readAgentProfilesFull(
+  projectDir: string,
+  agentId: string,
+): Promise<{
+  success: boolean;
+  concatenatedContent: string;
+  profiles: Array<{ filePath: string; selector: string; label?: string; content: string }>;
+  error?: string;
+}> {
+  const adataFilePath = join(projectDir, "metadata", `${agentId}.adata`);
+
+  // Read the .adata to get the profile list
+  let adataRaw: Record<string, unknown>;
+  try {
+    const raw = await readFile(adataFilePath, "utf-8");
+    adataRaw = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return { success: true, concatenatedContent: "", profiles: [] };
+  }
+
+  // Extract profiles array
+  const rawProfiles = adataRaw.profile;
+  if (!Array.isArray(rawProfiles) || rawProfiles.length === 0) {
+    return { success: true, concatenatedContent: "", profiles: [] };
+  }
+
+  // Sort by order, keep only enabled
+  type RawProfile = { id?: string; selector?: string; filePath?: string; label?: string; order?: number; enabled?: boolean };
+  const sorted = (rawProfiles as RawProfile[])
+    .filter((p) => p.enabled !== false && typeof p.filePath === "string")
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+  const profiles: Array<{ filePath: string; selector: string; label?: string; content: string }> = [];
+
+  for (const p of sorted) {
+    if (!p.filePath) continue;
+    const absPath = join(projectDir, p.filePath);
+    let content = "";
+    try {
+      content = await readFile(absPath, "utf-8");
+    } catch {
+      content = "";
+    }
+    profiles.push({
+      filePath: p.filePath,
+      selector: p.selector ?? "",
+      label: p.label,
+      content,
+    });
+  }
+
+  const concatenatedContent = profiles.map((p) => p.content).join("\n\n");
+  return { success: true, concatenatedContent, profiles };
 }
 
 // ── Handler registration ───────────────────────────────────────────────────
@@ -1220,6 +1353,108 @@ export function registerIpcHandlers(): void {
         console.log(`[ipc] RENAME_AGENT_FOLDER: complete — ${req.newSlug}`);
       }
       return result;
+    }
+  );
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Export modal IPC handlers
+  //
+  // These four handlers support the OpenCode export feature:
+  //   - SELECT_EXPORT_DIR:         open folder picker for export destination
+  //   - WRITE_EXPORT_FILE:         write the serialized config to disk
+  //   - LIST_SKILLS_FULL:          list all skills with SKILL.md content
+  //   - READ_AGENT_PROFILES_FULL:  read all profile .md files for an agent
+  //   - READ_AGENT_ADATA_RAW:      read the raw .adata object for an agent
+  // ══════════════════════════════════════════════════════════════════════
+
+  // ── Select export directory ────────────────────────────────────────────
+  ipcMain.handle(
+    IPC_CHANNELS.SELECT_EXPORT_DIR,
+    async (_event): Promise<SelectExportDirResult> => {
+      console.log("[ipc] SELECT_EXPORT_DIR: opening folder picker");
+      const win = BrowserWindow.getFocusedWindow();
+      const result = await dialog.showOpenDialog(win ?? BrowserWindow.getAllWindows()[0]!, {
+        title: "Choose export directory",
+        properties: ["openDirectory", "createDirectory"],
+      });
+      const dirPath = result.canceled || result.filePaths.length === 0
+        ? null
+        : result.filePaths[0]!;
+      console.log("[ipc] SELECT_EXPORT_DIR: selected →", dirPath ?? "(cancelled)");
+      return { dirPath };
+    }
+  );
+
+  // ── Write export file ──────────────────────────────────────────────────
+  ipcMain.handle(
+    IPC_CHANNELS.WRITE_EXPORT_FILE,
+    async (_event, req: WriteExportFileRequest): Promise<WriteExportFileResult> => {
+      console.log("[ipc] WRITE_EXPORT_FILE: dest →", req.destDir, "file →", req.fileName);
+      try {
+        const fullPath = join(req.destDir, req.fileName);
+        await mkdir(req.destDir, { recursive: true });
+        await writeFile(fullPath, req.content, "utf-8");
+        console.log("[ipc] WRITE_EXPORT_FILE: written to", fullPath);
+        return { success: true, filePath: fullPath };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error("[ipc] WRITE_EXPORT_FILE: error —", message);
+        return { success: false, error: message };
+      }
+    }
+  );
+
+  // ── List skills full (name + content) ─────────────────────────────────
+  ipcMain.handle(
+    IPC_CHANNELS.LIST_SKILLS_FULL,
+    async (_event, req: ListSkillsFullRequest): Promise<ListSkillsFullResult> => {
+      console.log("[ipc] LIST_SKILLS_FULL: projectDir →", req.projectDir);
+      try {
+        const skillsDir = join(req.projectDir, "skills");
+        const skills = await listSkillsFullFromDir(skillsDir);
+        return { success: true, skills };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error("[ipc] LIST_SKILLS_FULL: error —", message);
+        return { success: false, skills: [], error: message };
+      }
+    }
+  );
+
+  // ── Read agent profiles full (concatenated + individual .md content) ──
+  ipcMain.handle(
+    IPC_CHANNELS.READ_AGENT_PROFILES_FULL,
+    async (_event, req: ReadAgentProfilesFullRequest): Promise<ReadAgentProfilesFullResult> => {
+      console.log("[ipc] READ_AGENT_PROFILES_FULL: agentId →", req.agentId);
+      try {
+        const result = await readAgentProfilesFull(req.projectDir, req.agentId);
+        return result;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error("[ipc] READ_AGENT_PROFILES_FULL: error —", message);
+        return { success: false, concatenatedContent: "", profiles: [], error: message };
+      }
+    }
+  );
+
+  // ── Read agent .adata raw ──────────────────────────────────────────────
+  ipcMain.handle(
+    IPC_CHANNELS.READ_AGENT_ADATA_RAW,
+    async (_event, req: ReadAgentAdataRawRequest): Promise<ReadAgentAdataRawResult> => {
+      console.log("[ipc] READ_AGENT_ADATA_RAW: agentId →", req.agentId);
+      try {
+        const adataFilePath = join(req.projectDir, "metadata", `${req.agentId}.adata`);
+        if (!existsSync(adataFilePath)) {
+          return { success: true, adata: null };
+        }
+        const raw = await readFile(adataFilePath, "utf-8");
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        return { success: true, adata: parsed };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error("[ipc] READ_AGENT_ADATA_RAW: error —", message);
+        return { success: false, adata: null, error: message };
+      }
     }
   );
 }

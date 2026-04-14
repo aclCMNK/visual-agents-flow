@@ -236,6 +236,10 @@ export interface AgentFlowState {
    * When non-null, the global Permissions modal portal is shown above all overlays.
    */
   permissionsModalTarget: PermissionsModalTarget | null;
+  /**
+   * When true, the global Export modal portal is shown above all overlays.
+   */
+  exportModalOpen: boolean;
 }
 
 /** Actions for the flow store */
@@ -281,6 +285,10 @@ export interface AgentFlowActions {
   openPermissionsModal(target: PermissionsModalTarget): void;
   /** Close the global Permissions modal portal */
   closePermissionsModal(): void;
+  /** Open the global Export modal portal */
+  openExportModal(): void;
+  /** Close the global Export modal portal */
+  closeExportModal(): void;
   addLink(fromAgentId: string, toAgentId: string): void;
   /** Delete a link by id */
   deleteLink(id: string): void;
@@ -369,6 +377,7 @@ const initialState: AgentFlowState = {
   isSavingGraph: false,
   profileModalTarget: null,
   permissionsModalTarget: null,
+  exportModalOpen: false,
 };
 
 // ── Store ──────────────────────────────────────────────────────────────────
@@ -496,6 +505,14 @@ export const useAgentFlowStore = create<AgentFlowStore>((set) => ({
     set({ permissionsModalTarget: null });
   },
 
+  openExportModal() {
+    set({ exportModalOpen: true });
+  },
+
+  closeExportModal() {
+    set({ exportModalOpen: false });
+  },
+
   addLink(fromAgentId, toAgentId) {
     // Prevent self-connections
     if (fromAgentId === toAgentId) return;
@@ -600,6 +617,7 @@ export const useAgentFlowStore = create<AgentFlowStore>((set) => ({
       isSavingGraph: false,
       profileModalTarget: null,
       permissionsModalTarget: null,
+      exportModalOpen: false,
     });
   },
 
@@ -671,6 +689,7 @@ export const useAgentFlowStore = create<AgentFlowStore>((set) => ({
       isSavingGraph: false,
       profileModalTarget: null,
       permissionsModalTarget: null,
+      exportModalOpen: false,
     });
   },
 

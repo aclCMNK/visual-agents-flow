@@ -46,6 +46,10 @@ import type {
   AdataSetPermissionsRequest,
   AdataListSkillsRequest,
   RenameAgentFolderRequest,
+  WriteExportFileRequest,
+  ListSkillsFullRequest,
+  ReadAgentProfilesFullRequest,
+  ReadAgentAdataRawRequest,
 } from "./bridge.types.ts";
 
 // ── Bridge implementation ─────────────────────────────────────────────────
@@ -207,6 +211,28 @@ const bridge: AgentsFlowBridge = {
 
   renameAgentFolder(req: RenameAgentFolderRequest) {
     return ipcRenderer.invoke(IPC_CHANNELS.RENAME_AGENT_FOLDER, req);
+  },
+
+  // ── Export modal ──────────────────────────────────────────────────────────
+
+  selectExportDir() {
+    return ipcRenderer.invoke(IPC_CHANNELS.SELECT_EXPORT_DIR);
+  },
+
+  writeExportFile(req: WriteExportFileRequest) {
+    return ipcRenderer.invoke(IPC_CHANNELS.WRITE_EXPORT_FILE, req);
+  },
+
+  listSkillsFull(req: ListSkillsFullRequest) {
+    return ipcRenderer.invoke(IPC_CHANNELS.LIST_SKILLS_FULL, req);
+  },
+
+  readAgentProfilesFull(req: ReadAgentProfilesFullRequest) {
+    return ipcRenderer.invoke(IPC_CHANNELS.READ_AGENT_PROFILES_FULL, req);
+  },
+
+  readAgentAdataRaw(req: ReadAgentAdataRawRequest) {
+    return ipcRenderer.invoke(IPC_CHANNELS.READ_AGENT_ADATA_RAW, req);
   },
 };
 
