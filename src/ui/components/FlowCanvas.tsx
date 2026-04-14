@@ -39,8 +39,12 @@
  */
 
 import { useRef, useState, useEffect, useCallback, useLayoutEffect, useReducer } from "react";
-import { type AgentType, useAgentFlowStore } from "../store/agentFlowStore.ts";
+import { type AgentType, useAgentFlowStore, USER_NODE_ID } from "../store/agentFlowStore.ts";
 import { useProjectStore } from "../store/projectStore.ts";
+
+// ── User Node dimensions ───────────────────────────────────────────────────
+// The User node is a circle; we use diameter for both width and height.
+export const USER_NODE_DIAMETER = 80;
 
 // ── Node dimensions ────────────────────────────────────────────────────────
 
@@ -164,6 +168,127 @@ function GhostNode({ x, y }: GhostNodeProps) {
       aria-hidden="true"
     >
       <span className="flow-canvas__ghost-label">New Agent</span>
+    </div>
+  );
+}
+
+// ── User Canvas Node ───────────────────────────────────────────────────────
+// A special immutable circular node representing the end-user in the flow.
+// - Cannot be edited, renamed, deleted, or configured.
+// - Can be moved with drag (handle button).
+// - Can participate in connections (grip drag).
+
+interface UserCanvasNodeProps {  x: number;
+  y: number;
+  isDragging: boolean;
+  dragX?: number;
+  dragY?: number;
+  /** Whether this node is highlighted as a link drop target */
+  isLinkTarget: boolean;
+  /** Whether a link drag is currently in progress (from any node) */
+  isLinkDragActive: boolean;
+  /** Called when the user starts dragging the handle (to move the node) */
+  onHandleMouseDown: (id: string, e: React.MouseEvent) => void;
+  /** Called when user starts dragging from the dedicated connection grip */
+  onGripMouseDown: (id: string, e: React.MouseEvent) => void;
+  /** Called when the node body is clicked (select only) */
+  onBodyClick: (id: string) => void;
+  /** Called when mouse enters this node during a link-drag */
+  onNodeMouseEnterDuringLink: (id: string) => void;
+  /** Called when mouse leaves this node during a link-drag */
+  onNodeMouseLeaveDuringLink: () => void;
+  /** Called when mouse is released on this node during a link-drag */
+  onNodeMouseUpDuringLink: (id: string) => void;
+}
+
+function UserCanvasNode({
+  x, y,
+  isDragging, dragX, dragY,
+  isLinkTarget, isLinkDragActive,
+  onHandleMouseDown,
+  onGripMouseDown,
+  onBodyClick,
+  onNodeMouseEnterDuringLink,
+  onNodeMouseLeaveDuringLink,
+  onNodeMouseUpDuringLink,
+}: UserCanvasNodeProps) {
+  const left = isDragging && dragX !== undefined ? dragX : x;
+  const top  = isDragging && dragY !== undefined ? dragY : y;
+
+  function handleBodyMouseDown(e: React.MouseEvent) {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    onBodyClick(USER_NODE_ID);
+  }
+
+  function handleGripMouseDown(e: React.MouseEvent) {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    onGripMouseDown(USER_NODE_ID, e);
+  }
+
+  return (
+    <div
+      className={[
+        "flow-canvas__user-node",
+        isDragging       ? "flow-canvas__user-node--dragging"          : "",
+        isLinkTarget     ? "flow-canvas__user-node--link-target"       : "",
+        isLinkDragActive ? "flow-canvas__user-node--link-drag-active"  : "",
+      ].filter(Boolean).join(" ")}
+      style={{
+        left,
+        top,
+        width:  USER_NODE_DIAMETER,
+        height: USER_NODE_DIAMETER,
+      }}
+      aria-label="User node"
+      onMouseEnter={() => { onNodeMouseEnterDuringLink(USER_NODE_ID); }}
+      onMouseLeave={() => { onNodeMouseLeaveDuringLink(); }}
+      onMouseUp={() => { onNodeMouseUpDuringLink(USER_NODE_ID); }}
+      onClick={(e) => { e.stopPropagation(); }}
+    >
+      {/* ── Handle: drag to move ─────────────────────────────────────── */}
+      <button
+        className="flow-canvas__user-node__handle"
+        onMouseDown={(e) => { onHandleMouseDown(USER_NODE_ID, e); }}
+        title="Drag to move"
+        aria-label="Move User node"
+      >
+        ≡
+      </button>
+
+      {/* ── Body: click to select ────────────────────────────────────── */}
+      <div
+        className="flow-canvas__user-node__body"
+        onMouseDown={handleBodyMouseDown}
+        title="User — immutable node"
+      >
+        {/* Person silhouette SVG icon */}
+        <svg
+          className="flow-canvas__user-node__icon"
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+          fill="currentColor"
+        >
+          <path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z" />
+        </svg>
+        <span className="flow-canvas__user-node__label">User</span>
+      </div>
+
+      {/* ── Connection grip ──────────────────────────────────────────── */}
+      <div
+        className="flow-canvas__user-node__grip"
+        onMouseDown={handleGripMouseDown}
+        title="Drag to connect to an agent"
+        aria-label="Connect from User node"
+      >
+        <svg viewBox="0 0 12 12" width={12} height={12} aria-hidden="true">
+          <circle cx="6" cy="6" r="5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+          <line x1="6" y1="2" x2="6" y2="10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          <line x1="2" y1="6" x2="10" y2="6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      </div>
     </div>
   );
 }
@@ -574,6 +699,18 @@ interface LinksSvgProps {
   onLinkClick: (linkId: string, e: React.MouseEvent<SVGElement>) => void;
 }
 
+/** Resolve the effective node width for link endpoint calculations */
+function resolveNodeW(id: string, isOrchestrator: boolean): number {
+  if (id === USER_NODE_ID) return USER_NODE_DIAMETER;
+  return getNodeW(isOrchestrator);
+}
+
+/** Resolve the effective node height for link endpoint calculations */
+function resolveNodeH(id: string): number {
+  if (id === USER_NODE_ID) return USER_NODE_DIAMETER;
+  return NODE_H;
+}
+
 function LinksSvg({ agents, links, selectedLinkId, linkDrag, onLinkClick }: LinksSvgProps) {
   function getAgentPos(id: string) {
     return agents.find((a) => a.id === id);
@@ -628,21 +765,14 @@ function LinksSvg({ agents, links, selectedLinkId, linkDrag, onLinkClick }: Link
   /**
    * Compute the arrowhead position and orientation for a connection that
    * arrives at the destination node.
-   *
-   * The routing is:
-   *   - Straight horizontal: last segment direction is horizontal (dx, 0)
-   *   - Straight vertical:   last segment direction is vertical   (0, dy)
-   *   - L-shaped:            last segment is VERTICAL into dest  (matches makeRoundedPolylinePath)
-   *
-   * We find the border point where the last segment exits the destination rect,
-   * then offset the tip outward by ARROW_MARGIN px so it sits just outside the edge.
    */
   function computeArrowhead(
     fromCenter: { x: number; y: number },
+    toNodeId: string,
     toNodeX: number, toNodeY: number,
     toNodeW: number,
   ): { tipX: number; tipY: number; fromDirX: number; fromDirY: number } | null {
-    const toNodeH = NODE_H;
+    const toNodeH = resolveNodeH(toNodeId);
     const toCX = toNodeX + toNodeW / 2;
     const toCY = toNodeY + toNodeH / 2;
 
@@ -652,43 +782,34 @@ function LinksSvg({ agents, links, selectedLinkId, linkDrag, onLinkClick }: Link
 
     if (Math.sqrt(dx * dx + dy * dy) < 0.001) return null;
 
-    // Determine last-segment approach direction (mirrors makeRoundedPolylinePath logic)
     let fromDirX: number;
     let fromDirY: number;
-    // "approach point" = the point just before entering the dest node
-    // (used to compute the correct border intersection for the last segment)
     let approachX: number;
     let approachY: number;
 
     if (Math.abs(dx) < EPS) {
-      // Straight vertical line — approaches from above or below
       fromDirX = 0;
       fromDirY = dy > 0 ? 1 : -1;
       approachX = toCX;
-      approachY = toCY - fromDirY * 1000; // far above/below
+      approachY = toCY - fromDirY * 1000;
     } else if (Math.abs(dy) < EPS) {
-      // Straight horizontal line — approaches from left or right
       fromDirX = dx > 0 ? 1 : -1;
       fromDirY = 0;
       approachX = toCX - fromDirX * 1000;
       approachY = toCY;
     } else {
-      // L-shaped: horizontal first, then vertical — last segment is vertical
       fromDirX = 0;
       fromDirY = dy > 0 ? 1 : -1;
-      // The vertical segment comes straight down/up into toCX
       approachX = toCX;
       approachY = toCY - fromDirY * 1000;
     }
 
-    // Find where the last segment hits the destination node border
     const border = getNodeBorderPoint(
       { x: approachX, y: approachY },
       toNodeX, toNodeY,
       toNodeW, toNodeH,
     );
 
-    // Tip = border + ARROW_MARGIN outward (along the reverse of approach direction)
     const tipX = border.x - fromDirX * ARROW_MARGIN;
     const tipY = border.y - fromDirY * ARROW_MARGIN;
 
@@ -707,12 +828,19 @@ function LinksSvg({ agents, links, selectedLinkId, linkDrag, onLinkClick }: Link
         const toAgent   = getAgentPos(link.toAgentId);
         if (!fromAgent || !toAgent) return null;
 
-        const fromNodeW = getNodeW(fromAgent.isOrchestrator);
-        const toNodeW   = getNodeW(toAgent.isOrchestrator);
+        const fromNodeW = resolveNodeW(fromAgent.id, fromAgent.isOrchestrator);
+        const toNodeW   = resolveNodeW(toAgent.id, toAgent.isOrchestrator);
+        const fromNodeH = resolveNodeH(fromAgent.id);
+        const toNodeH   = resolveNodeH(toAgent.id);
 
-        const from = getNodeCenter(fromAgent.x, fromAgent.y, fromNodeW);
-        const to   = getNodeCenter(toAgent.x,   toAgent.y,   toNodeW);
-
+        const from = {
+          x: fromAgent.x + fromNodeW / 2,
+          y: fromAgent.y + fromNodeH / 2,
+        };
+        const to = {
+          x: toAgent.x + toNodeW / 2,
+          y: toAgent.y + toNodeH / 2,
+        };
         const isSelected = link.id === selectedLinkId;
         const isResponse = link.ruleType === "Response";
         const baseColor     = isResponse ? LINK_RESPONSE_COLOR : LINK_COLOR;
@@ -724,7 +852,7 @@ function LinksSvg({ agents, links, selectedLinkId, linkDrag, onLinkClick }: Link
         const d = makeRoundedPolylinePath(from.x, from.y, to.x, to.y);
 
         // Arrowhead on the destination end
-        const arrow = computeArrowhead(from, toAgent.x, toAgent.y, toNodeW);
+        const arrow = computeArrowhead(from, toAgent.id, toAgent.x, toAgent.y, toNodeW);
         const arrowPts = arrow
           ? arrowheadPoints(
               arrow.tipX, arrow.tipY,
@@ -848,10 +976,12 @@ function LinksSvg({ agents, links, selectedLinkId, linkDrag, onLinkClick }: Link
 
 export function FlowCanvas() {
   const agents          = useAgentFlowStore((s) => s.agents);
+  const userNode        = useAgentFlowStore((s) => s.userNode);
   const isPlacing       = useAgentFlowStore((s) => s.isPlacing);
   const commitPlacement = useAgentFlowStore((s) => s.commitPlacement);
   const cancelPlacement = useAgentFlowStore((s) => s.cancelPlacement);
   const moveAgent       = useAgentFlowStore((s) => s.moveAgent);
+  const moveUserNode    = useAgentFlowStore((s) => s.moveUserNode);
   const links           = useAgentFlowStore((s) => s.links);
   const selectedLinkId  = useAgentFlowStore((s) => s.selectedLinkId);
   const addLink         = useAgentFlowStore((s) => s.addLink);
@@ -1151,8 +1281,10 @@ export function FlowCanvas() {
 
   // ── Node MOVE drag (handle button only) ───────────────────────────────────
 
-  const moveAgentRef = useRef(moveAgent);
+  const moveAgentRef   = useRef(moveAgent);
+  const moveUserNodeRef = useRef(moveUserNode);
   useLayoutEffect(() => { moveAgentRef.current = moveAgent; }, [moveAgent]);
+  useLayoutEffect(() => { moveUserNodeRef.current = moveUserNode; }, [moveUserNode]);
 
   const canvasRefForDrag = canvasRef;
 
@@ -1166,9 +1298,22 @@ export function FlowCanvas() {
     const rect = canvasRefForDrag.current?.getBoundingClientRect() ?? null;
     if (!rect) return;
 
-    const agentsNow = useAgentFlowStore.getState().agents;
-    const agent = agentsNow.find((a) => a.id === agentId);
-    if (!agent) return;
+    // Resolve the starting position — either a regular agent or the user node
+    const storeState = useAgentFlowStore.getState();
+    let nodeX: number;
+    let nodeY: number;
+    const isUserNode = agentId === USER_NODE_ID;
+
+    if (isUserNode) {
+      if (!storeState.userNode) return;
+      nodeX = storeState.userNode.x;
+      nodeY = storeState.userNode.y;
+    } else {
+      const agent = storeState.agents.find((a) => a.id === agentId);
+      if (!agent) return;
+      nodeX = agent.x;
+      nodeY = agent.y;
+    }
 
     // Moving a node → select this node (sets selectionContext to "node")
     selectNode(agentId);
@@ -1179,17 +1324,17 @@ export function FlowCanvas() {
 
     const initialState: DragState = {
       agentId,
-      offsetX: mouseCanvasX - agent.x,
-      offsetY: mouseCanvasY - agent.y,
-      currentX: agent.x,
-      currentY: agent.y,
+      offsetX: mouseCanvasX - nodeX,
+      offsetY: mouseCanvasY - nodeY,
+      currentX: nodeX,
+      currentY: nodeY,
     };
 
     dragRef.current = initialState;
     draggingIdRef.current = agentId;
 
     setDraggingId(agentId);
-    setDragPos({ x: agent.x, y: agent.y });
+    setDragPos({ x: nodeX, y: nodeY });
 
     function onMouseMove(ev: MouseEvent) {
       const ds = dragRef.current;
@@ -1213,7 +1358,11 @@ export function FlowCanvas() {
 
       const ds = dragRef.current;
       if (ds) {
-        moveAgentRef.current(ds.agentId, ds.currentX, ds.currentY);
+        if (ds.agentId === USER_NODE_ID) {
+          moveUserNodeRef.current(ds.currentX, ds.currentY);
+        } else {
+          moveAgentRef.current(ds.agentId, ds.currentX, ds.currentY);
+        }
       }
 
       dragRef.current = null;
@@ -1239,20 +1388,34 @@ export function FlowCanvas() {
     const rect = getCanvasRect();
     if (!rect) return;
 
-    const agent = agents.find((a) => a.id === agentId);
-    if (!agent) return;
+    // Resolve start position — support both regular agents and the user node
+    let startX: number;
+    let startY: number;
+
+    if (agentId === USER_NODE_ID) {
+      const un = useAgentFlowStore.getState().userNode;
+      if (!un) return;
+      // Center of the circular user node
+      startX = un.x + USER_NODE_DIAMETER / 2;
+      startY = un.y + USER_NODE_DIAMETER / 2;
+    } else {
+      const agent = agents.find((a) => a.id === agentId);
+      if (!agent) return;
+      const nodeW = getNodeW(agent.isOrchestrator);
+      const center = getNodeCenter(agent.x, agent.y, nodeW);
+      startX = center.x;
+      startY = center.y;
+    }
 
     // Grip interaction → also selects this node
     selectNode(agentId);
 
-    const nodeW = getNodeW(agent.isOrchestrator);
-    const center = getNodeCenter(agent.x, agent.y, nodeW);
     const cur = clientToCanvas(e.clientX, e.clientY);
 
     const state: LinkDragState = {
       fromAgentId: agentId,
-      startX: center.x,
-      startY: center.y,
+      startX,
+      startY,
       currentX: cur.x,
       currentY: cur.y,
       hoverTargetId: null,
@@ -1338,13 +1501,24 @@ export function FlowCanvas() {
    * Live agent positions for the SVG links layer.
    * While a node is being dragged, its position in the store is NOT yet updated.
    * We substitute the live dragPos so that connection lines follow the dragged node.
+   * Also includes the UserNode (as a virtual "agent" entry) so links to/from it render.
    */
-  const liveAgentPositions = agents.map((a) => ({
-    id: a.id,
-    x: draggingId === a.id ? dragPos.x : a.x,
-    y: draggingId === a.id ? dragPos.y : a.y,
-    isOrchestrator: a.isOrchestrator,
-  }));
+  const liveAgentPositions: Array<{ id: string; x: number; y: number; isOrchestrator: boolean }> = [
+    ...agents.map((a) => ({
+      id: a.id,
+      x: draggingId === a.id ? dragPos.x : a.x,
+      y: draggingId === a.id ? dragPos.y : a.y,
+      isOrchestrator: a.isOrchestrator,
+    })),
+    // Include user node in link rendering — use its center for link endpoints.
+    // We use NODE_W set to USER_NODE_DIAMETER so the center calculation works.
+    ...(userNode ? [{
+      id: USER_NODE_ID,
+      x: draggingId === USER_NODE_ID ? dragPos.x : userNode.x,
+      y: draggingId === USER_NODE_ID ? dragPos.y : userNode.y,
+      isOrchestrator: false,
+    }] : []),
+  ];
 
   return (
     <div
@@ -1406,6 +1580,29 @@ export function FlowCanvas() {
           />
         ))}
 
+        {/* User node — circular, immutable, participates in connections */}
+        {userNode && (
+          <UserCanvasNode
+            x={userNode.x}
+            y={userNode.y}
+            isDragging={draggingId === USER_NODE_ID}
+            dragX={draggingId === USER_NODE_ID ? dragPos.x : undefined}
+            dragY={draggingId === USER_NODE_ID ? dragPos.y : undefined}
+            isLinkTarget={
+              isDraggingLink &&
+              linkDrag?.hoverTargetId === USER_NODE_ID &&
+              linkDrag?.fromAgentId !== USER_NODE_ID
+            }
+            isLinkDragActive={isDraggingLink}
+            onHandleMouseDown={startDrag}
+            onGripMouseDown={startLinkDrag}
+            onBodyClick={handleBodyClick}
+            onNodeMouseEnterDuringLink={handleNodeEnterDuringLink}
+            onNodeMouseLeaveDuringLink={handleNodeLeaveDuringLink}
+            onNodeMouseUpDuringLink={handleNodeMouseUpDuringLink}
+          />
+        )}
+
         {/* Ghost node follows the mouse in placement mode */}
         {isPlacing && (
           <GhostNode x={mousePos.x} y={mousePos.y} />
@@ -1425,10 +1622,10 @@ export function FlowCanvas() {
       />
 
       {/* Empty state hint (when no nodes and not placing) */}
-      {agents.length === 0 && !isPlacing && (
+      {agents.length === 0 && !userNode && !isPlacing && (
         <div className="flow-canvas__empty">
           <span aria-hidden="true">🤖</span>
-          <p>Click <strong>+ Nuevo agente</strong> in the sidebar to add your first agent.</p>
+          <p>Click <strong>+ New agent</strong> in the sidebar to add your first agent.</p>
         </div>
       )}
 

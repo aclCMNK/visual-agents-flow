@@ -113,6 +113,8 @@ function EditorView() {
   const flowAgents = useAgentFlowStore((s) => s.agents);
   const isPlacing = useAgentFlowStore((s) => s.isPlacing);
   const startPlacement = useAgentFlowStore((s) => s.startPlacement);
+  const userNode = useAgentFlowStore((s) => s.userNode);
+  const addUserNode = useAgentFlowStore((s) => s.addUserNode);
 
   const issueCount = lastLoadResult?.issues.length ?? 0;
   const errorCount = lastLoadResult?.summary.errors ?? 0;
@@ -212,6 +214,26 @@ function EditorView() {
             >
               + New agent
             </button>
+            {/* "Add User" button — only shown when no User node exists yet */}
+            {!userNode && (
+              <button
+                className="editor-view__add-user-btn"
+                onClick={() => addUserNode(60, 60)}
+                title="Add a User node to the canvas (only one allowed)"
+                aria-label="Add User node"
+              >
+                👤 Add User
+              </button>
+            )}
+            {userNode && (
+              <span
+                className="editor-view__user-node-badge"
+                title="User node is already on the canvas"
+                aria-label="User node present"
+              >
+                👤 User ✓
+              </span>
+            )}
           </div>
 
           {/* ── Flow agents list (canvas nodes, editable, selectable) ── */}

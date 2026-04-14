@@ -49,6 +49,7 @@ export function AgentGraphSaveButton() {
   const isSavingGraph = useAgentFlowStore((s) => s.isSavingGraph);
   const agents = useAgentFlowStore((s) => s.agents);
   const links = useAgentFlowStore((s) => s.links);
+  const userNode = useAgentFlowStore((s) => s.userNode);
   const markClean = useAgentFlowStore((s) => s.markClean);
   const setSavingGraph = useAgentFlowStore((s) => s.setSavingGraph);
 
@@ -85,7 +86,9 @@ export function AgentGraphSaveButton() {
       y: a.y,
     }));
 
-    // Serialize links (edges)
+    // Serialize links (edges).
+    // The internal store uses "user-node" as the UserNode ID, which is also
+    // the canonical ID used in the .afproj file — no remapping needed.
     const edges: AgentGraphEdge[] = links.map((l) => ({
       id: l.id,
       fromAgentId: l.fromAgentId,
@@ -99,6 +102,8 @@ export function AgentGraphSaveButton() {
       projectDir: project.projectDir,
       agents: agentNodes,
       edges,
+      // Include user node position so it can be persisted in .afproj
+      userPosition: userNode ? { x: userNode.x, y: userNode.y } : undefined,
     };
 
     try {
@@ -115,7 +120,7 @@ export function AgentGraphSaveButton() {
     } finally {
       setSavingGraph(false);
     }
-  }, [isDirty, isSavingGraph, project, agents, links, markClean, setSavingGraph]);
+  }, [isDirty, isSavingGraph, project, agents, links, userNode, markClean, setSavingGraph]);
 
   // Don't render if no project is open
   if (!project) return null;

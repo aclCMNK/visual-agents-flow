@@ -27,16 +27,63 @@ const agentSlugSchema = z
     "name must be a slug: lowercase letters, digits, and hyphens only, no leading/trailing hyphens"
   );
 
+// ── User ID ────────────────────────────────────────────────────────────────
+
+/**
+ * The canonical ID for the special "User" node.
+ * This value is used in connections (fromAgentId / toAgentId) to represent
+ * the human end-user in the flow. Must be a valid slug.
+ *
+ * @deprecated The constant name USER_ID_DEFAULT is kept for backward
+ * compatibility; its value changed from "user" to "user-node".
+ */
+export const USER_ID_DEFAULT = "user-node" as const;
+
+/**
+ * Schema for the `user` object stored at the root of .afproj.
+ * Replaces the legacy flat `user_id` string field.
+ *
+ * Shape:
+ *   {
+ *     "user_id": "user-node",   // always the canonical constant
+ *     "position": { "x": 120, "y": 300 }  // optional — absent on first save
+ *   }
+ */
+export const UserObjectSchema = z.object({
+  /** Always "user-node" — the canonical ID for the User node */
+  user_id: z.literal("user-node"),
+  /** Canvas position where the User node was last placed */
+  position: z.object({ x: z.number(), y: z.number() }).optional(),
+});
+
+/**
+ * Schema for a valid agent endpoint in a connection.
+ * Accepts either a UUID v4 (for regular agents) or exactly the
+ * user_id value from the project root (for the User node).
+ *
+ * Note: We allow any slug-like string here; cross-validation enforces
+ * that the value matches either a known agent UUID or the project's user_id.
+ */
+const connectionEndpointSchema = z.union([
+  z.guid(),
+  z.string().regex(
+    /^[a-z][a-z0-9-]*[a-z0-9]$|^[a-z]$/,
+    "endpoint must be a UUID or a valid slug (user_id)"
+  ),
+]);
+
 // ── Connection / Edge ──────────────────────────────────────────────────────
 
 /**
  * A directed connection between two agents (or an agent and a subagent).
+ * The fromAgentId / toAgentId may reference a regular agent UUID or the
+ * special user_id (e.g. "user") to represent the end-user in the flow.
  * Used to model flow topology in the canvas.
  */
 export const ConnectionSchema = z.object({
   id: z.guid(),
-  fromAgentId: z.guid(),
-  toAgentId: z.guid(),
+  fromAgentId: connectionEndpointSchema,
+  toAgentId: connectionEndpointSchema,
   /** Optional label shown on the edge in the canvas */
   label: z.string().max(200).optional(),
   /** Connection type discriminant — extend for future edge types */
@@ -90,6 +137,19 @@ export const AfprojSchema = z.object({
    * Falls back gracefully to empty string when absent (backward compat).
    */
   description: z.string().max(2000).default(""),
+  /**
+   * The special "User" node descriptor.
+   * Contains the canonical user_id ("user-node") and the last canvas position.
+   *
+   * Rules:
+   *   - user.user_id is always "user-node" (the canonical constant).
+   *   - user.position is optional — absent if the user node was never placed.
+   *   - When absent, no User node is shown on the canvas on load.
+   *
+   * Migration: legacy files with a flat `user_id` string at root are migrated
+   * to this structure by the IPC handler before writing.
+   */
+  user: UserObjectSchema.optional(),
   /** All agents registered in this project */
   agents: z.array(AgentRefSchema).default([]),
   /** Directed connections between agents */
@@ -107,3 +167,4 @@ export const AfprojSchema = z.object({
 export type Connection = z.infer<typeof ConnectionSchema>;
 export type AgentRef = z.infer<typeof AgentRefSchema>;
 export type Afproj = z.infer<typeof AfprojSchema>;
+export type UserObject = z.infer<typeof UserObjectSchema>;

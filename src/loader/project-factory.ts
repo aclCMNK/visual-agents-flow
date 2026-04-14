@@ -184,6 +184,10 @@ interface CreatedArtifact {
  * changed by normal save operations.
  *
  * `description` stores the human-readable project description and is editable from the UI.
+ *
+ * Note: The legacy flat `user_id` field is intentionally omitted. The User node
+ * is represented by the `user` object (written on first save when the user node
+ * is placed on the canvas). New projects start with no user node on the canvas.
  */
 function buildAfprojContent(name: string, description: string): string {
   const now = new Date().toISOString();

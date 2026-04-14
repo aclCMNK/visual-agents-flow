@@ -152,6 +152,9 @@ function serializeProjectModel(model: ProjectModel): SerializableProjectModel {
     name: model.afproj.name,
     description: model.afproj.description,
     version: model.afproj.version,
+    user: model.afproj.user
+      ? { user_id: model.afproj.user.user_id, position: model.afproj.user.position }
+      : undefined,
     agents,
     connections: model.connections.map((c) => ({
       id: c.id,
@@ -544,12 +547,28 @@ export function registerIpcHandlers(): void {
 
         // Merge into existing .afproj — preserve id, name, description,
         // version, createdAt, and any extra properties.
-        const updatedAfproj = {
+        // Build the new `user` object from the request's userPosition.
+        // Migrate legacy flat user_id field if present.
+        const userObject = req.userPosition
+          ? { user_id: "user-node", position: req.userPosition }
+          : undefined;
+
+        const updatedAfproj: Record<string, unknown> = {
           ...existingAfproj,
           agents: agentRefs,
           connections,
           updatedAt: now,
         };
+
+        // Write new `user` object (replaces legacy flat user_id)
+        if (userObject) {
+          updatedAfproj.user = userObject;
+        } else {
+          // Remove user if no user node is on the canvas
+          delete updatedAfproj.user;
+        }
+        // Always remove legacy flat user_id (migration)
+        delete updatedAfproj.user_id;
 
         // ── 4. Write updated .afproj atomically ──────────────────────────
         await atomicWriteJson(afprojPath, updatedAfproj);

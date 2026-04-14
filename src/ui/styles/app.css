@@ -1884,6 +1884,43 @@ button:disabled {
 	cursor: not-allowed;
 }
 
+/* "Add User" button — teal/cyan accent, visible & distinct from "New agent" */
+.editor-view__add-user-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 4px 10px;
+	border-radius: var(--radius-md);
+	font-size: 0.75rem;
+	font-weight: 600;
+	background: #0891b2;          /* teal-600 */
+	color: #fff;
+	transition: background var(--transition), opacity var(--transition);
+	white-space: nowrap;
+	margin-left: 4px;
+}
+
+.editor-view__add-user-btn:hover {
+	background: #0e7490;          /* teal-700 */
+}
+
+/* "User ✓" badge shown when user node already exists */
+.editor-view__user-node-badge {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 3px 8px;
+	border-radius: var(--radius-md);
+	font-size: 0.72rem;
+	font-weight: 600;
+	background: color-mix(in srgb, #0891b2 18%, transparent);
+	color: #0891b2;
+	border: 1px solid #0891b2;
+	margin-left: 4px;
+	white-space: nowrap;
+	cursor: default;
+}
+
 /* Flow agent list (in sidebar) */
 .editor-view__flow-agent-list {
 	list-style: none;
@@ -3608,6 +3645,146 @@ button:disabled {
 .flow-canvas__node--link-target {
 	border-color: var(--color-primary) !important;
 	box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.35), 0 4px 18px rgba(99, 102, 241, 0.3) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/* Flow Canvas — User Node (circular, immutable, teal accent)                  */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * .flow-canvas__user-node — the special "User" node.
+ * Rendered as a circle (border-radius: 50%).
+ * Immutable: no edit/delete buttons.
+ * Distinct teal color scheme, clearly different from regular agent nodes.
+ */
+.flow-canvas__user-node {
+	position: absolute;
+	background: #083344;              /* teal dark bg */
+	border: 2.5px solid #0891b2;      /* teal-600 */
+	border-radius: 50%;               /* circle */
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	box-shadow: 0 4px 14px rgba(8, 145, 178, 0.4);
+	transition:
+		border-color var(--transition),
+		box-shadow var(--transition);
+	user-select: none;
+	z-index: 3;                       /* above regular nodes (z-index: 2) */
+	overflow: visible;                /* grip extends outside circle */
+}
+
+.flow-canvas__user-node:hover {
+	border-color: #22d3ee;            /* teal-300 */
+	box-shadow: 0 4px 22px rgba(34, 211, 238, 0.45);
+}
+
+.flow-canvas__user-node--dragging {
+	border-color: #22d3ee;
+	box-shadow: 0 12px 40px rgba(8, 145, 178, 0.6), 0 4px 12px rgba(0, 0, 0, 0.5);
+	opacity: 0.92;
+	z-index: 100;
+	transition: none;
+	cursor: grabbing;
+}
+
+.flow-canvas__user-node--link-target {
+	border-color: #22d3ee !important;
+	box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.4), 0 4px 18px rgba(8, 145, 178, 0.45) !important;
+}
+
+.flow-canvas__user-node--link-drag-active:not(.flow-canvas__user-node--link-target) {
+	opacity: 0.85;
+}
+
+/* Handle button (drag to move) — top-right of the circle */
+.flow-canvas__user-node__handle {
+	position: absolute;
+	top: 0;
+	right: 2px;
+	width: 16px;
+	height: 16px;
+	border-radius: 3px;
+	font-size: 0.85rem;
+	font-weight: 700;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	opacity: 0;
+	transition: opacity var(--transition), background var(--transition);
+	color: #67e8f9;                   /* teal-200 */
+	cursor: grab;
+	padding: 0;
+	line-height: 1;
+}
+
+.flow-canvas__user-node:hover .flow-canvas__user-node__handle {
+	opacity: 1;
+}
+
+.flow-canvas__user-node__handle:hover {
+	background: rgba(8, 145, 178, 0.35);
+}
+
+.flow-canvas__user-node__handle:active {
+	cursor: grabbing;
+}
+
+/* Body — centered icon + "User" label */
+.flow-canvas__user-node__body {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 2px;
+	cursor: default;
+	padding: 8px 4px 4px;
+}
+
+.flow-canvas__user-node__icon {
+	width: 22px;
+	height: 22px;
+	color: #67e8f9;                   /* teal-200 */
+	flex-shrink: 0;
+}
+
+.flow-canvas__user-node__label {
+	font-size: 0.68rem;
+	font-weight: 700;
+	color: #e0f2fe;                   /* sky-100 */
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	white-space: nowrap;
+}
+
+/* Connection grip — bottom-right of circle */
+.flow-canvas__user-node__grip {
+	position: absolute;
+	bottom: -6px;
+	right: -6px;
+	width: 18px;
+	height: 18px;
+	border-radius: 50%;
+	background: #0e7490;              /* teal-700 */
+	border: 1.5px solid #22d3ee;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	cursor: crosshair;
+	opacity: 0;
+	transition: opacity var(--transition), background var(--transition);
+	color: #e0f2fe;
+	z-index: 10;
+}
+
+.flow-canvas__user-node:hover .flow-canvas__user-node__grip {
+	opacity: 1;
+}
+
+.flow-canvas__user-node__grip:hover {
+	background: #0891b2;
+	border-color: #67e8f9;
 }
 
 /* ── Selected link hint variant ──────────────────────────────────────────── */

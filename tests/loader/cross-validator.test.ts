@@ -22,6 +22,7 @@ import {
   makeAdataB,
   AGENT_A_ID,
   AGENT_B_ID,
+  CONN_ID,
   type ProjectFixture,
 } from "./fixtures/project-factory.ts";
 import type { Afproj } from "../../src/schemas/afproj.schema.ts";
@@ -364,6 +365,114 @@ describe("crossValidate — profilePath consistency", () => {
     const mismatch = result.issues.find((i) => i.code === "PROFILE_PATH_MISMATCH");
     expect(mismatch).toBeDefined();
     expect(mismatch?.severity).toBe("error");
+  });
+});
+
+// ── User node connections ─────────────────────────────────────────────────
+
+describe("crossValidate — user node connections", () => {
+  it("passes validation for a user→agent connection (user-node as fromAgentId)", async () => {
+    const afproj = makeAfproj({
+      user: { user_id: "user-node" },
+      connections: [
+        {
+          id: CONN_ID,
+          fromAgentId: "user-node", // canonical user node ID
+          toAgentId: AGENT_A_ID,
+          type: "default",
+          metadata: {},
+        },
+      ],
+    });
+
+    const adataByAgentId = new Map<string, Adata>([
+      [AGENT_A_ID, makeAdataA()],
+      [AGENT_B_ID, makeAdataB()],
+    ]);
+
+    const result = await runCrossValidation(afproj, adataByAgentId);
+
+    const fromError = result.issues.find((i) => i.code === "INVALID_CONNECTION_FROM");
+    expect(fromError).toBeUndefined();
+    expect(hasErrors(result.issues)).toBe(false);
+  });
+
+  it("passes validation for an agent→user connection (user-node as toAgentId)", async () => {
+    const afproj = makeAfproj({
+      user: { user_id: "user-node" },
+      connections: [
+        {
+          id: CONN_ID,
+          fromAgentId: AGENT_A_ID,
+          toAgentId: "user-node", // canonical user node ID
+          type: "default",
+          metadata: {},
+        },
+      ],
+    });
+
+    const adataByAgentId = new Map<string, Adata>([
+      [AGENT_A_ID, makeAdataA()],
+      [AGENT_B_ID, makeAdataB()],
+    ]);
+
+    const result = await runCrossValidation(afproj, adataByAgentId);
+
+    const toError = result.issues.find((i) => i.code === "INVALID_CONNECTION_TO");
+    expect(toError).toBeUndefined();
+    expect(hasErrors(result.issues)).toBe(false);
+  });
+
+  it("fails validation for an unknown slug that is not the user-node ID", async () => {
+    const afproj = makeAfproj({
+      user: { user_id: "user-node" },
+      connections: [
+        {
+          id: CONN_ID,
+          fromAgentId: "ghost-user", // slug but NOT "user-node"
+          toAgentId: AGENT_A_ID,
+          type: "default",
+          metadata: {},
+        },
+      ],
+    });
+
+    const adataByAgentId = new Map<string, Adata>([
+      [AGENT_A_ID, makeAdataA()],
+      [AGENT_B_ID, makeAdataB()],
+    ]);
+
+    const result = await runCrossValidation(afproj, adataByAgentId);
+
+    const fromError = result.issues.find((i) => i.code === "INVALID_CONNECTION_FROM");
+    expect(fromError).toBeDefined();
+    expect(fromError?.severity).toBe("error");
+  });
+
+  it("fails validation when no user object is present but connection uses 'user-node'", async () => {
+    const afproj = makeAfproj({
+      user: undefined, // no user node in this project
+      connections: [
+        {
+          id: CONN_ID,
+          fromAgentId: "user-node", // user-node not registered
+          toAgentId: AGENT_A_ID,
+          type: "default",
+          metadata: {},
+        },
+      ],
+    });
+
+    const adataByAgentId = new Map<string, Adata>([
+      [AGENT_A_ID, makeAdataA()],
+      [AGENT_B_ID, makeAdataB()],
+    ]);
+
+    const result = await runCrossValidation(afproj, adataByAgentId);
+
+    const fromError = result.issues.find((i) => i.code === "INVALID_CONNECTION_FROM");
+    expect(fromError).toBeDefined();
+    expect(fromError?.severity).toBe("error");
   });
 });
 

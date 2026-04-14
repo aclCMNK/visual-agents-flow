@@ -214,6 +214,10 @@ describe('createProject() — happy path', () => {
     // Both timestamps should be valid ISO strings
     expect(() => new Date(manifest.createdAt)).not.toThrow();
     expect(() => new Date(manifest.updatedAt)).not.toThrow();
+    // Legacy flat user_id must NOT be written in new projects (migration)
+    expect(manifest.user_id).toBeUndefined();
+    // New project has no user object yet (user node is added via canvas)
+    expect(manifest.user).toBeUndefined();
   });
 
   it("creates .gitkeep in each subdirectory", async () => {

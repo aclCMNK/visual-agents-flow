@@ -27,6 +27,7 @@ export function makeAfproj(overrides: Partial<Afproj> = {}): Afproj {
     id: "f1e2d3c4-b5a6-7890-1234-567890abcdef",
     name: "Test Project",
     description: "Integration test project",
+    user: { user_id: "user-node", position: { x: 100, y: 100 } },
     agents: [
       {
         id: AGENT_A_ID,

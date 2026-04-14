@@ -18,7 +18,7 @@ import {
   hasAfprojIdentity,
   hasAdataIdentity,
 } from "../../src/loader/schema-validator.ts";
-import { makeAfproj, makeAdataA, AGENT_A_ID, AGENT_B_ID } from "./fixtures/project-factory.ts";
+import { makeAfproj, makeAdataA, AGENT_A_ID, AGENT_B_ID, CONN_ID } from "./fixtures/project-factory.ts";
 
 // ── validateAfproj ─────────────────────────────────────────────────────────
 
@@ -340,6 +340,139 @@ describe("AdataSchema — slug-only agentName", () => {
   it("rejects agentName with uppercase in .adata", () => {
     const raw = { ...makeAdataA(), agentName: "SupportAgent" };
     const result = validateAdata(raw, `metadata/${AGENT_A_ID}.adata`);
+
+    expect(result.success).toBe(false);
+  });
+});
+
+// ── ConnectionSchema — user-node as endpoint ───────────────────────────────
+
+describe("ConnectionSchema — user-node as connection endpoint", () => {
+  it("accepts 'user-node' as fromAgentId in a connection", () => {
+    const raw = makeAfproj({
+      connections: [
+        {
+          id: CONN_ID,
+          fromAgentId: "user-node", // canonical user node ID
+          toAgentId: AGENT_A_ID,
+          type: "default",
+          metadata: {},
+        },
+      ],
+    });
+    const result = validateAfproj(raw, "test.afproj");
+
+    expect(result.success).toBe(true);
+    expect(result.data?.connections[0]?.fromAgentId).toBe("user-node");
+  });
+
+  it("accepts 'user-node' as toAgentId in a connection", () => {
+    const raw = makeAfproj({
+      connections: [
+        {
+          id: CONN_ID,
+          fromAgentId: AGENT_A_ID,
+          toAgentId: "user-node", // canonical user node ID
+          type: "default",
+          metadata: {},
+        },
+      ],
+    });
+    const result = validateAfproj(raw, "test.afproj");
+
+    expect(result.success).toBe(true);
+    expect(result.data?.connections[0]?.toAgentId).toBe("user-node");
+  });
+
+  it("rejects a non-UUID non-slug value as connection endpoint", () => {
+    const raw = makeAfproj({
+      connections: [
+        {
+          id: CONN_ID,
+          fromAgentId: "Not A Valid ID!", // invalid
+          toAgentId: AGENT_A_ID,
+          type: "default",
+          metadata: {},
+        },
+      ],
+    });
+    const result = validateAfproj(raw, "test.afproj");
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects an empty string as connection endpoint", () => {
+    const raw = makeAfproj({
+      connections: [
+        {
+          id: CONN_ID,
+          fromAgentId: AGENT_A_ID,
+          toAgentId: "", // empty
+          type: "default",
+          metadata: {},
+        },
+      ],
+    });
+    const result = validateAfproj(raw, "test.afproj");
+
+    expect(result.success).toBe(false);
+  });
+});
+
+// ── AfprojSchema — user object ─────────────────────────────────────────────
+
+describe("AfprojSchema — user object", () => {
+  it("accepts a valid user object with user_id 'user-node' and position", () => {
+    const raw = makeAfproj({
+      user: { user_id: "user-node", position: { x: 120, y: 300 } },
+    });
+    const result = validateAfproj(raw, "test.afproj");
+
+    expect(result.success).toBe(true);
+    expect(result.data?.user?.user_id).toBe("user-node");
+    expect(result.data?.user?.position).toEqual({ x: 120, y: 300 });
+  });
+
+  it("accepts a user object without position (position is optional)", () => {
+    const raw = makeAfproj({
+      user: { user_id: "user-node" },
+    });
+    const result = validateAfproj(raw, "test.afproj");
+
+    expect(result.success).toBe(true);
+    expect(result.data?.user?.user_id).toBe("user-node");
+    expect(result.data?.user?.position).toBeUndefined();
+  });
+
+  it("leaves user undefined when the user field is absent (no user node on canvas)", () => {
+    const raw = {
+      id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      name: "Minimal Project",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const result = validateAfproj(raw, "min.afproj");
+
+    expect(result.success).toBe(true);
+    expect(result.data?.user).toBeUndefined();
+  });
+
+  it("rejects a user object with user_id other than 'user-node'", () => {
+    const raw = makeAfproj({
+      // @ts-expect-error — intentionally invalid for test
+      user: { user_id: "human" },
+    });
+    const result = validateAfproj(raw, "test.afproj");
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a user object with uppercase user_id", () => {
+    const raw = makeAfproj({
+      // @ts-expect-error — intentionally invalid for test
+      user: { user_id: "User-Node" },
+    });
+    const result = validateAfproj(raw, "test.afproj");
 
     expect(result.success).toBe(false);
   });

@@ -40,6 +40,25 @@ function uuid(): string {
 export type AgentType = "Agent" | "Sub-Agent";
 
 /**
+ * A special "User" node that represents the human end-user in the flow diagram.
+ * It is purely visual/decorative: it can be moved and connected to other agents,
+ * but it is NOT persisted as a real agent in behaviors or project configuration.
+ * There can only be ONE UserNode on the canvas at a time.
+ */
+export interface UserNode {
+  /** Unique identifier (constant: "user-node") */
+  id: "user-node";
+  /** Display name — always "User", never editable */
+  name: "User";
+  /** Canvas position (top-left of bounding box) */
+  x: number;
+  y: number;
+}
+
+/** The fixed ID for the UserNode. Used across store, canvas, and tests. */
+export const USER_NODE_ID = "user-node" as const;
+
+/**
  * @deprecated InputPortId is kept for backwards compatibility but is no longer
  * used to describe port positions. Links now connect node centers directly.
  */
@@ -164,6 +183,12 @@ export type SelectionContext = "none" | "node" | "link";
 export interface AgentFlowState {
   /** All agent nodes placed on the canvas */
   agents: CanvasAgent[];
+  /**
+   * The special "User" node, if one has been added to the canvas.
+   * null means no User node exists yet.
+   * Only one UserNode is allowed at a time (enforced by addUserNode).
+   */
+  userNode: UserNode | null;
   /** Whether the app is currently in "placement mode" (ghost follows mouse) */
   isPlacing: boolean;
   /**
@@ -309,6 +334,21 @@ export interface AgentFlowActions {
    * Marks the store as clean (isDirty = false).
    */
   loadFromProject(project: SerializableProjectModel): void;
+  /**
+   * Add the special "User" node to the canvas at the given position.
+   * No-op if a UserNode already exists (only one allowed).
+   */
+  addUserNode(x: number, y: number): void;
+  /**
+   * Remove the special "User" node from the canvas.
+   * Also removes all links connected to it.
+   */
+  removeUserNode(): void;
+  /**
+   * Move the User node to a new canvas position.
+   * No-op if no UserNode exists.
+   */
+  moveUserNode(x: number, y: number): void;
 }
 
 export type AgentFlowStore = AgentFlowState & AgentFlowActions;
@@ -317,6 +357,7 @@ export type AgentFlowStore = AgentFlowState & AgentFlowActions;
 
 const initialState: AgentFlowState = {
   agents: [],
+  userNode: null,
   isPlacing: false,
   editingAgentId: null,
   links: [],
@@ -549,6 +590,7 @@ export const useAgentFlowStore = create<AgentFlowStore>((set) => ({
     set({
       agents: [],
       links: [],
+      userNode: null,
       isPlacing: false,
       editingAgentId: null,
       selectedLinkId: null,
@@ -575,6 +617,8 @@ export const useAgentFlowStore = create<AgentFlowStore>((set) => ({
     }));
 
     // ── Reconstruct links from connections[] + their metadata ────────────────
+    // The .afproj stores "user-node" directly as the user ID in connections.
+    // No remapping needed — both store and file use USER_NODE_ID ("user-node").
     const links: AgentLink[] = project.connections.map((c) => {
       const meta = c.metadata ?? {};
       const ruleType: LinkRuleType =
@@ -596,6 +640,17 @@ export const useAgentFlowStore = create<AgentFlowStore>((set) => ({
       };
     });
 
+    // ── Restore UserNode from project.user.position ──────────────────────────
+    let userNode: UserNode | null = null;
+    if (project.user?.position) {
+      userNode = {
+        id: USER_NODE_ID,
+        name: "User",
+        x: project.user.position.x,
+        y: project.user.position.y,
+      };
+    }
+
     // ── Restore panelOpen from project.properties.ui.panelOpen ──────────────
     const ui = (project.properties as Record<string, unknown>)?.ui as
       | Record<string, unknown>
@@ -605,6 +660,7 @@ export const useAgentFlowStore = create<AgentFlowStore>((set) => ({
     set({
       agents,
       links,
+      userNode, // restored from project.user.position (or null if no user node)
       panelOpen,
       isPlacing: false,
       editingAgentId: null,
@@ -615,6 +671,33 @@ export const useAgentFlowStore = create<AgentFlowStore>((set) => ({
       isSavingGraph: false,
       profileModalTarget: null,
       permissionsModalTarget: null,
+    });
+  },
+
+  addUserNode(x, y) {
+    set((state) => {
+      // Only one UserNode is allowed at a time
+      if (state.userNode !== null) return {};
+      const node: UserNode = { id: "user-node", name: "User", x, y };
+      return { userNode: node, isDirty: true };
+    });
+  },
+
+  removeUserNode() {
+    set((state) => {
+      if (state.userNode === null) return {};
+      // Remove all links connected to the user-node
+      const links = state.links.filter(
+        (l) => l.fromAgentId !== "user-node" && l.toAgentId !== "user-node"
+      );
+      return { userNode: null, links, isDirty: true };
+    });
+  },
+
+  moveUserNode(x, y) {
+    set((state) => {
+      if (state.userNode === null) return {};
+      return { userNode: { ...state.userNode, x, y }, isDirty: true };
     });
   },
 }));

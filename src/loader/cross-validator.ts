@@ -240,24 +240,32 @@ export async function crossValidate(
   }
 
   // ── 5. Validate connections reference known agents ──────────────────
+  // Connection endpoints may be a regular agent UUID OR the project's user_id.
+  // The user object is optional — if absent, no user node is in the graph.
+  const userId = afproj.user?.user_id;
+
   for (const conn of afproj.connections) {
-    if (!agentIdsSeen.has(conn.fromAgentId)) {
+    const fromIsAgent = agentIdsSeen.has(conn.fromAgentId);
+    const fromIsUser = conn.fromAgentId === userId;
+    if (!fromIsAgent && !fromIsUser) {
       issues.push(
         err(
           "INVALID_CONNECTION_FROM",
-          `Connection "${conn.id}" fromAgentId "${conn.fromAgentId}" is not a known agent.`,
+          `Connection "${conn.id}" fromAgentId "${conn.fromAgentId}" is not a known agent or the project user_id ("${userId}").`,
           `${afprojSource}#connections[${conn.id}].fromAgentId`,
-          `Remove the connection or register the agent in .afproj.`
+          `Remove the connection, register the agent in .afproj, or ensure the ID matches the project user_id.`
         )
       );
     }
-    if (!agentIdsSeen.has(conn.toAgentId)) {
+    const toIsAgent = agentIdsSeen.has(conn.toAgentId);
+    const toIsUser = conn.toAgentId === userId;
+    if (!toIsAgent && !toIsUser) {
       issues.push(
         err(
           "INVALID_CONNECTION_TO",
-          `Connection "${conn.id}" toAgentId "${conn.toAgentId}" is not a known agent.`,
+          `Connection "${conn.id}" toAgentId "${conn.toAgentId}" is not a known agent or the project user_id ("${userId}").`,
           `${afprojSource}#connections[${conn.id}].toAgentId`,
-          `Remove the connection or register the agent in .afproj.`
+          `Remove the connection, register the agent in .afproj, or ensure the ID matches the project user_id.`
         )
       );
     }

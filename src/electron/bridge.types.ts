@@ -96,6 +96,15 @@ export interface SerializableProjectModel {
   /** Short project description (stored as `description` in .afproj) */
   description: string;
   version: number;
+  /**
+   * The user node descriptor, if a User node is present in the project.
+   * When present, `user.user_id` is always "user-node".
+   * When absent, no User node exists in the graph.
+   *
+   * @deprecated The legacy flat `user_id: string` field has been replaced
+   * by this object. Old files are migrated on save.
+   */
+  user?: { user_id: string; position?: { x: number; y: number } };
   agents: SerializableAgentModel[];
   connections: SerializableConnection[];
   properties: Record<string, unknown>;
@@ -416,6 +425,12 @@ export interface SaveAgentGraphRequest {
   agents: AgentGraphNode[];
   /** All directed links between agents */
   edges: AgentGraphEdge[];
+  /**
+   * The current canvas position of the User node, if one is placed.
+   * When present, the .afproj `user` object is written with this position.
+   * When absent, the `user` object is omitted (or cleared) from .afproj.
+   */
+  userPosition?: { x: number; y: number };
 }
 
 export interface SaveAgentGraphResult {
