@@ -6422,3 +6422,114 @@ button:disabled {
 	font-size: 0.75rem;
 	color: var(--color-error, #f87171);
 }
+
+/* ── [NEW] FolderExplorer integration styles ────────────────────────────── */
+
+/*
+ * Warning / error banner shown below the directory input when:
+ *   - FolderExplorer surfaces an IpcError (permission denied, outside home, etc.)
+ *   - The chosen path violates the allowSubfolders constraint
+ * Uses role="alert" in JSX for screen-reader announcement.
+ */
+.export-modal__dir-warning {
+	display: flex;
+	align-items: flex-start;
+	gap: 6px;
+	margin-top: 6px;
+	padding: 6px 10px;
+	border-radius: var(--radius-sm, 4px);
+	font-size: 0.78rem;
+	line-height: 1.4;
+}
+
+.export-modal__dir-warning--warning {
+	background: rgba(251, 191, 36, 0.12);
+	border: 1px solid rgba(251, 191, 36, 0.35);
+	color: #fbbf24;
+}
+
+.export-modal__dir-warning--error {
+	background: rgba(248, 113, 113, 0.1);
+	border: 1px solid rgba(248, 113, 113, 0.35);
+	color: var(--color-error, #f87171);
+}
+
+/*
+ * Panel that wraps the inline FolderExplorer + confirm/cancel action row.
+ * Displayed below the toolbar when browseMode = true.
+ */
+.export-modal__folder-explorer-panel {
+	display: flex;
+	flex-direction: column;
+	gap: 0;
+	border-bottom: 1px solid var(--color-border, #2e3147);
+	background: var(--color-surface, #1a1d27);
+}
+
+/* Override FolderExplorer's default border/radius to blend with modal edges */
+.export-modal__folder-explorer {
+	border-radius: 0 !important;
+	border-left: none !important;
+	border-right: none !important;
+	border-top: none !important;
+}
+
+/*
+ * Action row below the FolderExplorer with Confirm + Cancel buttons.
+ */
+.export-modal__folder-explorer-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 12px;
+	background: var(--color-surface-2, #232637);
+	border-top: 1px solid var(--color-border, #2e3147);
+	flex-shrink: 0;
+}
+
+/*
+ * "Use 'dirname'" confirm button — positive action styling.
+ */
+.export-modal__folder-confirm-btn {
+	padding: 5px 14px;
+	background: var(--color-accent, #6c63ff);
+	color: #fff;
+	border: none;
+	border-radius: var(--radius-sm, 4px);
+	font-size: 0.8rem;
+	font-weight: 500;
+	cursor: pointer;
+	transition: background 0.15s;
+	max-width: 280px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.export-modal__folder-confirm-btn:hover:not(:disabled) {
+	background: var(--color-accent-hover, #7c74ff);
+}
+
+.export-modal__folder-confirm-btn:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+
+/*
+ * "Cancel" button for dismissing the FolderExplorer without changing the path.
+ */
+.export-modal__folder-cancel-btn {
+	padding: 5px 12px;
+	background: transparent;
+	color: var(--color-text-muted, #8b91b3);
+	border: 1px solid var(--color-border, #2e3147);
+	border-radius: var(--radius-sm, 4px);
+	font-size: 0.8rem;
+	cursor: pointer;
+	transition: background 0.15s, color 0.15s;
+}
+
+.export-modal__folder-cancel-btn:hover {
+	background: var(--color-surface-3, #2a2d42);
+	color: var(--color-text, #e2e4ef);
+}

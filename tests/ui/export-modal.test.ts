@@ -859,10 +859,14 @@ describe("buildAgentOpenCodeJson — hidden sub-agent", () => {
   });
 });
 
-// ── ExportModal sanity: handlePickDir calls bridge.selectExportDir ─────────────
+// ── ExportModal sanity: FolderExplorer integration + exportDir persistence ──
 //
-// These static assertions guard against regressions where handlePickDir is
-// accidentally wired to a different IPC channel or reads the wrong result field.
+// These static assertions guard against regressions in the ExportModal flow.
+// They verify the key integration points:
+//   1. FolderExplorer is used (not the legacy native dialog).
+//   2. onConfirm saves exportDir to project.properties via saveProject.
+//   3. On open, project.properties.exportDir is read as initialPath.
+//   4. statPath is used to validate the saved path before restoring it.
 
 import { readFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
@@ -871,25 +875,49 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const EXPORT_MODAL_PATH = join(__dirname, "../../src/ui/components/ExportModal/ExportModal.tsx");
 
-describe("ExportModal — handlePickDir sanity check", () => {
-  it("calls bridge.selectExportDir() to open the folder picker", async () => {
+describe("ExportModal — FolderExplorer integration sanity check", () => {
+  it("imports and renders FolderExplorer component", async () => {
     const source = await readFile(EXPORT_MODAL_PATH, "utf-8");
-    expect(source).toContain("bridge.selectExportDir()");
+    // Must import the FolderExplorer component
+    expect(source).toContain('import { FolderExplorer }');
+    // Must render it somewhere in JSX
+    expect(source).toContain('<FolderExplorer');
   });
 
-  it("reads result.dirPath from the selectExportDir response", async () => {
+  it("uses statPath to validate the saved export dir on open", async () => {
     const source = await readFile(EXPORT_MODAL_PATH, "utf-8");
-    // The handler should check result.dirPath (the field returned by the IPC handler)
-    expect(source).toContain("result.dirPath");
+    // statPath is imported from ipc.ts and called in the initialization useEffect
+    expect(source).toContain('import { statPath }');
+    expect(source).toContain('statPath(savedPath)');
   });
 
-  it("does not call selectExportDir with getFocusedWindow or window args", async () => {
+  it("reads exportDir from project.properties on open", async () => {
     const source = await readFile(EXPORT_MODAL_PATH, "utf-8");
-    // The UI side must not pass window references — window resolution is main-process only
-    const pickDirIdx = source.indexOf("handlePickDir");
-    expect(pickDirIdx).toBeGreaterThan(-1);
-    const pickDirBlock = source.slice(pickDirIdx, pickDirIdx + 300);
-    expect(pickDirBlock).not.toContain("getFocusedWindow");
-    expect(pickDirBlock).not.toContain("BrowserWindow");
+    // The initialization useEffect reads project.properties.exportDir via dot notation
+    expect(source).toContain('project.properties');
+    expect(source).toContain('properties?.exportDir');
+  });
+
+  it("saves exportDir to project.properties via saveProject on confirm", async () => {
+    const source = await readFile(EXPORT_MODAL_PATH, "utf-8");
+    // saveProject is extracted from projectStore and called in handleFolderConfirm
+    expect(source).toContain('saveProject');
+    // The exportDir key is written into properties
+    expect(source).toContain('exportDir: path');
+  });
+
+  it("has fallback to HOME with console.warn when saved path is invalid", async () => {
+    const source = await readFile(EXPORT_MODAL_PATH, "utf-8");
+    // Fallback logging is implemented in the useEffect for invalid saved paths
+    expect(source).toContain('console.warn');
+    expect(source).toContain('Usando HOME como punto de partida');
+  });
+
+  it("handleFolderConfirm is defined and used by FolderExplorer onConfirm prop", async () => {
+    const source = await readFile(EXPORT_MODAL_PATH, "utf-8");
+    // The handler must exist
+    expect(source).toContain('handleFolderConfirm');
+    // FolderExplorer must wire it via onConfirm prop
+    expect(source).toContain('onConfirm={handleFolderConfirm}');
   });
 });

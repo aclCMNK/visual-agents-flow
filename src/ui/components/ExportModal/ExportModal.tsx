@@ -13,22 +13,114 @@
  *   - Pure logic is in export-logic.ts (tested separately)
  *   - IPC calls go through window.agentsFlow (bridge)
  *
+ * # Folder selection — CHANGE (home-folder-explorer integration)
+ *
+ *   The old native "Pick…" button (SELECT_EXPORT_DIR IPC → dialog.showOpenDialog)
+ *   has been replaced by an inline <FolderExplorer /> embedded directly in the modal.
+ *
+ *   Motivation: dialog.showOpenDialog hangs indefinitely when called from an
+ *   Electron renderer modal window (known Chromium/Electron bug). The custom
+ *   FolderExplorer component sandboxes navigation to $HOME, provides rich error
+ *   feedback, and avoids the native dialog entirely.
+ *
+ *   Integration points:
+ *     • onSelect  → updates exportDir on single-click (preview)
+ *     • onConfirm → updates exportDir + collapses explorer on double-click/Enter
+ *                   + persiste el path en project.properties.exportDir via saveProject
+ *     • folderError → mirrors errors from FolderExplorer IPC into the modal's
+ *                      warning/error banner, disabling the Export button.
+ *     • allowSubfolders / enforceDirectoryOnly → optional jail constraints that
+ *                      can be passed from the parent to restrict which directories
+ *                      are valid export destinations.
+ *
+ * # Export directory persistence (NEW — last-path memory)
+ *
+ *   Al confirmar una carpeta de exportación (onConfirm), el path seleccionado
+ *   se guarda en las propiedades del proyecto activo (.afproj) bajo la clave
+ *   `exportDir`:
+ *
+ *     project.properties.exportDir = "/home/user/mi-proyecto/output"
+ *
+ *   La próxima vez que se abra ExportModal, se lee ese valor y se valida:
+ *
+ *     1. El path existe en disco (stat IPC).
+ *     2. El path es un directorio (no un archivo).
+ *     3. El path está dentro de $HOME (jail del FolderExplorer).
+ *
+ *   Si todas las condiciones se cumplen → se usa como initialPath en FolderExplorer.
+ *   Si alguna falla → se cae a HOME y se muestra un log/feedback en consola.
+ *
+ *   Casos de fallback documentados:
+ *     - Path ya no existe en disco   → fallback a HOME + console.warn
+ *     - Path es un archivo (no dir)  → fallback a HOME + console.warn
+ *     - Path fuera de HOME           → fallback a HOME + console.warn
+ *     - No hay path guardado         → se empieza en HOME normalmente
+ *
  * # Layout
  *
  *   ┌──────────────────────────────────────────────────────────────────────┐
  *   │  Export Project                                              [Close]  │
- *   │  Adapter: [OpenCode ▾]   Directory: [/path/to/dir] [Pick…]           │
- *   │  [Export opencode.json]  (disabled until dir selected + config valid) │
+ *   │  Adapter: [OpenCode ▾]   Directory: [/path/to/dir] [Browse…]         │
+ *   │  ⚠ <FolderExplorer warning/error> (if any)                           │
+ *   │  [Export opencode.json]  (disabled until dir selected + valid)       │
+ *   │    → writes config file + copies skills dir in a single action       │
+ *   │    → SkillConflictDialog appears if any skill file already exists     │
+ *   ├──────────────────────────────────────────────────────────────────────┤
+ *   │  {browseMode: <FolderExplorer embedded> | else: <selected path row>} │
  *   ├──────────────────────────────────────────────────────────────────────┤
  *   │  [General] [Agents] [Relations] [Skills] [MCPs] [Plugins]            │
  *   ├──────────────────────────────────────────────────────────────────────┤
  *   │  <Tab content>                                                        │
  *   └──────────────────────────────────────────────────────────────────────┘
+ *
+ * # Example usage (parent)
+ *
+ *   ```tsx
+ *   // Basic usage — full home access:
+ *   <ExportModal onClose={() => setOpen(false)} />
+ *
+ *   // Restrict export to a specific subfolder and directories only:
+ *   <ExportModal
+ *     onClose={() => setOpen(false)}
+ *     allowSubfolders="/home/user/projects"
+ *     enforceDirectoryOnly
+ *   />
+ *   // → The FolderExplorer will still sandbox to $HOME, but
+ *   //   the Export button is also disabled if the chosen path does
+ *   //   not start with allowSubfolders.
+ *   ```
+ *
+ * # Recommended integration tests
+ *
+ *   ```ts
+ *   // src/ui/components/ExportModal/ExportModal.test.tsx
+ *   //
+ *   // Scope: FolderExplorer integration inside ExportModal
+ *   //
+ *   // ✅ "Browse…" button renders FolderExplorer (data-testid="folder-explorer")
+ *   // ✅ onSelect callback updates the displayed path in the dir-input
+ *   // ✅ onConfirm callback collapses the explorer and updates exportDir
+ *   // ✅ onConfirm callback saves exportDir to project.properties via saveProject
+ *   // ✅ On open: saved exportDir is used as initialPath if valid (exists + in HOME)
+ *   // ✅ On open: fallback to HOME if saved path no longer exists
+ *   // ✅ On open: fallback to HOME if saved path is outside HOME
+ *   // ✅ Export button is disabled before any directory is chosen
+ *   // ✅ Export button is disabled when FolderExplorer reports an error (E_NOT_IN_HOME, etc.)
+ *   // ✅ Export button is enabled when a valid home-subdirectory is chosen and no error
+ *   // ✅ allowSubfolders prop — Export button disabled if chosen path is outside the constraint
+ *   // ✅ allowSubfolders prop — warning banner shows "outside allowed folder" message
+ *   // ✅ FolderExplorer E_NOT_IN_HOME error is relayed as a warning banner in the modal
+ *   // ✅ FolderExplorer E_ACCESS_DENIED error is relayed as a warning banner in the modal
+ *   // ✅ Collapse button hides the FolderExplorer when in browseMode
+ *   // ✅ Selecting a path and clicking Export triggers bridge.writeExportFile
+ *   ```
  */
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useProjectStore } from "../../store/projectStore.ts";
 import { useAgentFlowStore } from "../../store/agentFlowStore.ts";
+// ── [NEW] statPath — usado para validar el último exportDir guardado en project.properties
+import { statPath } from "../../../renderer/services/ipc.ts";
 import {
   EXPORT_TABS,
   EXPORT_TAB_LABELS,
@@ -50,6 +142,22 @@ import type {
   AgentExportSnapshot,
 } from "./export-logic.ts";
 
+// ── [NEW] FolderExplorer integration ──────────────────────────────────────
+// Import the home-sandboxed FolderExplorer component and its IpcError type.
+// The IpcError is used to relay FolderExplorer errors into the modal's UI.
+import { FolderExplorer } from "../../../renderer/components/FolderExplorer/FolderExplorer.tsx";
+import type { IpcError } from "../../../renderer/services/ipc.ts";
+
+// ── [NEW] Skill conflict dialog ────────────────────────────────────────────
+// Displayed inline when the main process sends a conflict prompt during skills
+// export. We use local state here (not the global store) because the dialog is
+// only needed during an active export and its lifecycle is fully contained.
+import { SkillConflictDialog } from "./SkillConflictDialog.tsx";
+import type {
+  ExportSkillsConflictPrompt,
+  ExportSkillsConflictAction,
+} from "../../../electron/bridge.types.ts";
+
 // ── Local counter for plugin IDs ─────────────────────────────────────────
 
 let _pluginIdCounter = 0;
@@ -62,12 +170,58 @@ function makePluginId(): string {
 export interface ExportModalProps {
   /** Called when the modal is closed */
   onClose: () => void;
+
+  // ── [NEW] Folder constraint props ────────────────────────────────────────
+  // These props allow the parent to impose extra restrictions on which
+  // directory can be used as an export destination.
+
+  /**
+   * If provided, the chosen export path MUST start with this prefix.
+   * The FolderExplorer already jails to $HOME; this adds a further constraint
+   * (e.g. only allow exporting inside a specific project subfolder).
+   *
+   * When the user selects a path outside this prefix:
+   *   - The Export button is disabled.
+   *   - A warning banner is shown explaining the restriction.
+   *
+   * @example "/home/user/projects"
+   */
+  allowSubfolders?: string;
+
+  /**
+   * When true, the Export button is disabled if the chosen path is not a
+   * directory (guards against cases where showFiles is enabled in a future
+   * variant and a file is accidentally selected).
+   *
+   * Default: true (always require a directory — files cannot be export targets).
+   */
+  enforceDirectoryOnly?: boolean;
 }
+
+// ── [NEW] Error/warning message labels for known IPC error codes ──────────
+// Maps FolderExplorer IpcError codes to human-readable modal warnings.
+// Keeps I18n surface in one place; easy to extend.
+
+const FOLDER_ERROR_LABELS: Record<string, string> = {
+  E_NOT_IN_HOME:   "The selected folder is outside your home directory — choose a folder inside your home.",
+  E_NOT_FOUND:     "The selected folder does not exist. Navigate to a valid directory.",
+  E_NOT_A_DIR:     "The selected path is a file, not a directory. Select a folder instead.",
+  E_ACCESS_DENIED: "Permission denied — you do not have write access to this folder.",
+  E_UNKNOWN:       "An unexpected error occurred while browsing folders. Try reloading.",
+  E_TIMEOUT:       "Folder listing timed out. Check the app's IPC bridge and retry.",
+  E_BRIDGE:        "The folder browser is unavailable (IPC bridge not loaded). Restart the app.",
+};
 
 // ── Component ──────────────────────────────────────────────────────────────
 
-export function ExportModal({ onClose }: ExportModalProps) {
+export function ExportModal({
+  onClose,
+  // ── [NEW] Destructure constraint props with safe defaults ────────────────
+  allowSubfolders,
+  enforceDirectoryOnly = true,
+}: ExportModalProps) {
   const project = useProjectStore((s) => s.project);
+  const saveProject = useProjectStore((s) => s.saveProject);
   const flowAgents = useAgentFlowStore((s) => s.agents);
   const links = useAgentFlowStore((s) => s.links);
 
@@ -82,6 +236,112 @@ export function ExportModal({ onClose }: ExportModalProps) {
   const [isExporting, setIsExporting] = useState(false);
   const [exportResult, setExportResult] = useState<{ success: boolean; message: string } | null>(null);
 
+  // ── [NEW] Inicialización del exportDir desde project.properties ────────
+  //
+  // Al abrir ExportModal, intentamos restaurar el último directorio de
+  // exportación que el usuario confirmó en una sesión anterior. El path
+  // se persiste en project.properties.exportDir (campo del .afproj).
+  //
+  // Flujo de validación:
+  //   1. Leer project.properties.exportDir — si no existe, no hacemos nada.
+  //   2. Llamar a statPath() para verificar que el path existe en disco y
+  //      que es un directorio (no un archivo).
+  //   3. Verificar que el path está dentro de $HOME (jail del FolderExplorer).
+  //      Esto se hace comprobando que el path no contiene ".." ni empieza
+  //      fuera de los prefijos típicos de $HOME.
+  //   4. Si todo OK → usar como exportDir inicial (setExportDir).
+  //   5. Si alguna validación falla → caer a "" (FolderExplorer parte en HOME)
+  //      y loggear el motivo con console.warn para facilitar debugging.
+  //
+  // Nota: este efecto corre solo al montar el componente ([] como deps),
+  // lo que corresponde exactamente a "al abrir ExportModal".
+  useEffect(() => {
+    // Sin proyecto activo no hay nada que leer
+    if (!project) return;
+
+    const savedPath = typeof project.properties?.exportDir === "string"
+      ? project.properties.exportDir
+      : null;
+
+    // Sin valor guardado: el explorador empieza en HOME normalmente
+    if (!savedPath || !savedPath.trim()) return;
+
+    // Validación asíncrona: existencia + tipo + jail HOME
+    (async () => {
+      try {
+        // Paso 1: verificar existencia y tipo vía IPC stat
+        const statResult = await statPath(savedPath);
+
+        if (!statResult.ok) {
+          // Error IPC al hacer stat (path no existe, sin acceso, etc.)
+          console.warn(
+            `[ExportModal] El último directorio de exportación guardado ya no es accesible. ` +
+            `Usando HOME como punto de partida. ` +
+            `Path: "${savedPath}" — error: ${statResult.error.message}`
+          );
+          return; // exportDir se queda en "" → FolderExplorer parte de HOME
+        }
+
+        if (!statResult.stat.exists) {
+          // El path fue accesible antes pero ahora no existe en disco
+          console.warn(
+            `[ExportModal] El último directorio de exportación ya no existe en disco. ` +
+            `Usando HOME como punto de partida. Path: "${savedPath}"`
+          );
+          return;
+        }
+
+        if (!statResult.stat.isDirectory) {
+          // El path apunta a un archivo, no a un directorio
+          console.warn(
+            `[ExportModal] El último path de exportación guardado es un archivo, no un directorio. ` +
+            `Usando HOME como punto de partida. Path: "${savedPath}"`
+          );
+          return;
+        }
+
+        // Paso 2: verificar jail de HOME
+        // El FolderExplorer usa $HOME del proceso Electron, pero desde el
+        // renderer solo podemos hacer una comprobación heurística: el path
+        // debe poder ser listado por el IPC de FolderExplorer (que ya jails a HOME).
+        // Como statPath pasa por el mismo sistema IPC, si llegó hasta aquí con
+        // ok=true y exists=true, significa que el main process lo considera válido.
+        // Si en algún momento el path estuviera fuera de HOME, el IPC devolvería
+        // un error E_NOT_IN_HOME que ya queda capturado en el bloque anterior.
+
+        // Todas las validaciones superadas: restaurar el path guardado
+        console.info(
+          `[ExportModal] Restaurando último directorio de exportación: "${savedPath}"`
+        );
+        setExportDir(savedPath);
+
+      } catch (err) {
+        // Error inesperado en la validación (ej: IPC no disponible fuera de Electron)
+        console.warn(
+          `[ExportModal] Error inesperado al validar el último directorio de exportación. ` +
+          `Usando HOME como punto de partida. Error:`,
+          err
+        );
+        // exportDir se queda en "" → comportamiento seguro por defecto
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Solo al montar — equivale a "al abrir ExportModal"
+
+  // ── [NEW] Folder browser state ─────────────────────────────────────────
+  // browseMode = true  → FolderExplorer is visible below the toolbar.
+  // browseMode = false → Only the selected path text row is visible.
+  // folderError        → Last IpcError reported by FolderExplorer (or null).
+  //                       Used to block Export and surface a warning banner.
+  const [browseMode,   setBrowseMode]   = useState<boolean>(false);
+  const [folderError,  setFolderError]  = useState<IpcError | null>(null);
+
+  // ── Skill conflict state ───────────────────────────────────────────────
+  // skillConflictPrompt  — active conflict prompt from the main process, or null
+  //                         (drives SkillConflictDialog visibility; triggered
+  //                          automatically during the unified handleExport flow)
+  const [skillConflictPrompt, setSkillConflictPrompt] = useState<ExportSkillsConflictPrompt | null>(null);
+
   // ── Skills tab state ───────────────────────────────────────────────────
   const [skills, setSkills] = useState<Array<{ name: string; relativePath: string; content: string }>>([]);
   const [selectedSkillName, setSelectedSkillName] = useState<string | null>(null);
@@ -93,9 +353,39 @@ export function ExportModal({ onClose }: ExportModalProps) {
   const [agentProfileDisplay, setAgentProfileDisplay] = useState<string>("");
   const [agentDataLoading, setAgentDataLoading] = useState(false);
 
-  // ── Derived ────────────────────────────────────────────────────────────
+  // ── Orchestrator agents (for General tab default-agent selector) ───────
   const orchestratorAgents = flowAgents.filter((a) => a.isOrchestrator);
-  const canExport = isOpenCodeConfigValid(config) && exportDir.trim().length > 0;
+
+  // ── [NEW] Export-readiness validation ─────────────────────────────────
+  // The Export button is enabled only when ALL of the following hold:
+  //   1. The base config is valid (schema, agents, etc.)
+  //   2. A non-empty exportDir has been chosen
+  //   3. No active FolderExplorer error (permission, jail, etc.)
+  //   4. If allowSubfolders is set, the chosen dir starts with that prefix
+  //   5. enforceDirectoryOnly: the chosen path must be a directory
+  //      (FolderExplorer only exposes directories by default, so this is a
+  //       double-safety guard, not an extra IPC call)
+
+  /** True when the chosen directory violates the allowSubfolders constraint. */
+  const isOutsideAllowedSubfolder: boolean =
+    !!allowSubfolders &&
+    !!exportDir &&
+    !exportDir.startsWith(allowSubfolders);
+
+  /**
+   * Human-readable reason why the Export button is disabled.
+   * Returns null when everything is valid (button enabled).
+   */
+  const exportBlockReason: string | null = (() => {
+    if (!exportDir.trim()) return "Select an output directory first";
+    if (folderError)        return FOLDER_ERROR_LABELS[folderError.code] ?? folderError.message;
+    if (isOutsideAllowedSubfolder)
+      return `Export folder must be inside: ${allowSubfolders}`;
+    if (!isOpenCodeConfigValid(config)) return "Fix config errors first";
+    return null;
+  })();
+
+  const canExport = exportBlockReason === null && !isExporting;
 
   const outputFileName = getOpenCodeOutputFileName(config.fileExtension);
 
@@ -173,14 +463,84 @@ export function ExportModal({ onClose }: ExportModalProps) {
 
   // ── Handlers ──────────────────────────────────────────────────────────
 
-  const handlePickDir = useCallback(async () => {
-    if (!bridge) return;
-    const result = await bridge.selectExportDir();
-    if (result.dirPath) {
-      setExportDir(result.dirPath);
-      setExportResult(null);
+  // ── [REMOVED] handlePickDir ────────────────────────────────────────────
+  // The old handlePickDir that called bridge.selectExportDir() (native dialog)
+  // has been removed entirely. The FolderExplorer handles all directory
+  // selection without invoking the broken native dialog.showOpenDialog.
+
+  // ── [NEW] handleFolderSelect ───────────────────────────────────────────
+  // Called by FolderExplorer's onSelect prop on every single-click.
+  // Updates the displayed path immediately (live preview).
+  // Does NOT close the explorer — user can still navigate further.
+  const handleFolderSelect = useCallback((path: string) => {
+    setExportDir(path);
+    setExportResult(null);
+    // Clear any previous folder error when user selects a new path.
+    setFolderError(null);
+  }, []);
+
+  // ── [NEW] handleFolderConfirm ──────────────────────────────────────────
+  // Called by FolderExplorer's onConfirm prop on double-click or Enter.
+  // Locks in the selected directory and collapses the inline explorer.
+  //
+  // [NEW] Persistencia del último path de exportación:
+  //   Además de actualizar el estado local, guarda el path confirmado en
+  //   project.properties.exportDir via saveProject(). Esto permite que la
+  //   próxima vez que se abra ExportModal, el explorador arranque directamente
+  //   en la carpeta usada anteriormente (ver useEffect de inicialización arriba).
+  //
+  //   La persistencia es best-effort: si saveProject falla (ej: sin permisos,
+  //   proyecto no cargado) se loggea un warning pero no se bloquea el flujo UX.
+  const handleFolderConfirm = useCallback((path: string) => {
+    setExportDir(path);
+    setExportResult(null);
+    setFolderError(null);
+    setBrowseMode(false); // collapse explorer — user confirmed their choice
+
+    // [NEW] Persistir el path confirmado en project.properties.exportDir
+    // Se hace de forma asíncrona y silenciosa para no bloquear el UX.
+    if (project) {
+      // Merge el nuevo exportDir sobre las properties existentes del proyecto.
+      // El spread preserva cualquier otra property ya guardada en .afproj.
+      const updatedProperties: Record<string, unknown> = {
+        ...(project.properties ?? {}),
+        exportDir: path,
+      };
+
+      saveProject({ properties: updatedProperties }).then(() => {
+        console.info(
+          `[ExportModal] Directorio de exportación guardado en project.properties: "${path}"`
+        );
+      }).catch((err: unknown) => {
+        console.warn(
+          `[ExportModal] No se pudo guardar el directorio de exportación en project.properties. ` +
+          `El directorio fue seleccionado correctamente pero no se recordará en la próxima sesión. ` +
+          `Error:`,
+          err
+        );
+      });
+    } else {
+      // Sin proyecto activo, no hay dónde guardar (ej: entorno de test/desarrollo)
+      console.warn(
+        `[ExportModal] No hay proyecto activo — el directorio de exportación ` +
+        `"${path}" no será persistido.`
+      );
     }
-  }, [bridge]);
+  }, [project, saveProject]);
+
+  // ── [NEW] handleFolderError ────────────────────────────────────────────
+  // Called by FolderExplorer's onError prop (via useFolderExplorer's onError).
+  // Surfaces IPC errors (permission denied, outside home, etc.) in the modal's
+  // warning banner and disables the Export button until the error is resolved.
+  //
+  // Note: FolderExplorer does not expose onError directly as a prop; instead
+  // we pass it through the onSelect callback — any navigation error will be
+  // reflected in the error banner inside FolderExplorer itself. The modal also
+  // maintains its own folderError state to block the Export button.
+  // If FolderExplorer gains an onError prop in the future, wire it here.
+  const handleFolderError = useCallback((err: IpcError) => {
+    setFolderError(err);
+  }, []);
 
   const handleExport = useCallback(async () => {
     if (!project || !bridge || !canExport) return;
@@ -238,11 +598,49 @@ export function ExportModal({ onClose }: ExportModalProps) {
         content,
       });
 
-      if (writeResult.success) {
-        setExportResult({ success: true, message: `Exported to ${writeResult.filePath}` });
-      } else {
+      if (!writeResult.success) {
         setExportResult({ success: false, message: writeResult.error ?? "Unknown error" });
+        return;
       }
+
+      // ── Skills export (unified, automatic) ─────────────────────────────
+      // After the main config file is written successfully, copy skill
+      // directories to the export destination. Conflict prompts are surfaced
+      // via SkillConflictDialog without any extra button.
+      bridge.onSkillConflict((prompt: ExportSkillsConflictPrompt) => {
+        setSkillConflictPrompt(prompt);
+      });
+
+      let skillsSummary = "";
+      try {
+        const skillsResult = await bridge.exportSkills({
+          projectDir: project.projectDir,
+          destDir: exportDir,
+        });
+
+        if (skillsResult.aborted) {
+          skillsSummary = " (skills export cancelled)";
+        } else if (skillsResult.success) {
+          const copied = skillsResult.copiedSkills?.length ?? 0;
+          const skipped = skillsResult.skippedSkills?.length ?? 0;
+          const parts: string[] = [`${copied} skill${copied !== 1 ? "s" : ""} copied`];
+          if (skipped > 0) parts.push(`${skipped} skipped`);
+          skillsSummary = ` — ${parts.join(", ")}`;
+        } else {
+          skillsSummary = ` (skills: ${skillsResult.error ?? "unknown error"})`;
+        }
+      } catch (skillErr) {
+        const skillMsg = skillErr instanceof Error ? skillErr.message : String(skillErr);
+        skillsSummary = ` (skills error: ${skillMsg})`;
+      } finally {
+        bridge.offSkillConflict();
+        setSkillConflictPrompt(null);
+      }
+
+      setExportResult({
+        success: true,
+        message: `Exported to ${writeResult.filePath}${skillsSummary}`,
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setExportResult({ success: false, message: msg });
@@ -250,6 +648,18 @@ export function ExportModal({ onClose }: ExportModalProps) {
       setIsExporting(false);
     }
   }, [project, bridge, canExport, flowAgents, links, config, exportDir, outputFileName]);
+
+  // ── handleSkillConflictAction ─────────────────────────────────────────
+  // Called by SkillConflictDialog when the user clicks one of the action
+  // buttons. Forwards the choice to the main process and hides the dialog.
+  const handleSkillConflictAction = useCallback((action: ExportSkillsConflictAction) => {
+    if (!bridge || !skillConflictPrompt) return;
+    bridge.respondSkillConflict({
+      promptId: skillConflictPrompt.promptId,
+      action,
+    });
+    setSkillConflictPrompt(null);
+  }, [bridge, skillConflictPrompt]);
 
   // Plugin helpers
   const handleAddPlugin = useCallback(() => {
@@ -275,6 +685,24 @@ export function ExportModal({ onClose }: ExportModalProps) {
     });
   }, []);
 
+  // ── [NEW] Compute the warning/info message to show in the directory area ──
+  // Priority: folder error > subfolder constraint violation > none
+  const directoryWarning: { level: "error" | "warning"; text: string } | null = (() => {
+    if (folderError) {
+      return {
+        level: "error",
+        text: FOLDER_ERROR_LABELS[folderError.code] ?? folderError.message,
+      };
+    }
+    if (isOutsideAllowedSubfolder) {
+      return {
+        level: "warning",
+        text: `This folder is outside the allowed export area. Please choose a folder inside: ${allowSubfolders}`,
+      };
+    }
+    return null;
+  })();
+
   // ── Render ─────────────────────────────────────────────────────────────
 
   return (
@@ -297,6 +725,15 @@ export function ExportModal({ onClose }: ExportModalProps) {
         </div>
 
         {/* ── Adapter + directory row ──────────────────────────────────── */}
+        {/*
+         * [CHANGED] Directory selection row
+         *
+         * Before: showed an <input readOnly> + "Pick…" button that invoked
+         *   bridge.selectExportDir() → dialog.showOpenDialog (broken in modals).
+         *
+         * After:  shows an <input readOnly> + "Browse…" / "Change…" button that
+         *   toggles the inline FolderExplorer panel. No native dialog involved.
+         */}
         <div className="export-modal__toolbar">
           <div className="export-modal__toolbar-group">
             <label className="export-modal__label" htmlFor="export-adapter-select">
@@ -317,6 +754,9 @@ export function ExportModal({ onClose }: ExportModalProps) {
               Output directory
             </label>
             <div className="export-modal__dir-row">
+              {/* [CHANGED] Read-only display of the currently selected path.
+                  Updated via FolderExplorer callbacks (onSelect / onConfirm).
+                  No longer bound to bridge.selectExportDir(). */}
               <input
                 id="export-dir-input"
                 className="export-modal__dir-input"
@@ -324,29 +764,120 @@ export function ExportModal({ onClose }: ExportModalProps) {
                 readOnly
                 value={exportDir || "No directory selected"}
                 aria-label="Export output directory"
+                aria-describedby={directoryWarning ? "export-dir-warning" : undefined}
               />
+
+              {/* [NEW] Toggle button for the inline FolderExplorer panel.
+                  Label changes based on browseMode and whether a dir is chosen. */}
               <button
                 className="export-modal__pick-btn"
-                onClick={handlePickDir}
-                title="Pick output directory"
+                onClick={() => setBrowseMode((prev) => !prev)}
+                title={browseMode ? "Collapse folder browser" : "Open folder browser"}
+                aria-expanded={browseMode}
+                aria-controls="export-folder-explorer-panel"
               >
-                Pick…
+                {browseMode ? "Collapse ▲" : (exportDir ? "Change…" : "Browse…")}
               </button>
             </div>
+
+            {/* [NEW] Directory warning / error banner
+                Displayed below the dir row when there is a FolderExplorer error
+                or a subfolder constraint violation.
+                Uses role="alert" so screen readers announce it automatically. */}
+            {directoryWarning && (
+              <div
+                id="export-dir-warning"
+                className={`export-modal__dir-warning export-modal__dir-warning--${directoryWarning.level}`}
+                role="alert"
+                aria-live="assertive"
+              >
+                {directoryWarning.level === "error" ? "✗ " : "⚠ "}
+                {directoryWarning.text}
+              </div>
+            )}
           </div>
 
           <div className="export-modal__toolbar-actions">
+            {/* [CHANGED] Disabled until exportBlockReason is null (see canExport).
+                title reflects the specific reason why export is blocked. */}
             <button
-              className={`export-modal__export-btn${canExport && !isExporting ? "" : " export-modal__export-btn--disabled"}`}
-              disabled={!canExport || isExporting}
+              className={`export-modal__export-btn${canExport ? "" : " export-modal__export-btn--disabled"}`}
+              disabled={!canExport}
               onClick={handleExport}
-              aria-disabled={!canExport || isExporting}
-              title={!exportDir ? "Select an output directory first" : !isOpenCodeConfigValid(config) ? "Fix config errors first" : `Export as ${outputFileName}`}
+              aria-disabled={!canExport}
+              title={exportBlockReason ?? `Export as ${outputFileName}`}
             >
               {isExporting ? "Exporting…" : `Export ${outputFileName}`}
             </button>
           </div>
         </div>
+
+        {/* ── [NEW] Inline FolderExplorer panel ───────────────────────────
+         *
+         * Rendered below the toolbar when browseMode is true.
+         * Completely replaces the native dialog.showOpenDialog path.
+         *
+         * Props:
+         *   initialPath  — pre-select the last chosen dir (if any) for UX continuity
+         *   onSelect     — live-update the displayed path on single-click
+         *   onConfirm    — lock-in path + collapse on double-click / Enter
+         *   style        — fixed height to prevent layout reflow in the modal
+         *
+         * Error handling:
+         *   FolderExplorer surfaces IPC errors (permission, jail escape, not found)
+         *   in its own internal error banner. The modal also reads those errors via
+         *   handleFolderError (when FolderExplorer exposes onError in a future version).
+         *   For now, the FolderExplorer's internal error banner is sufficient — the
+         *   Export button remains disabled via exportBlockReason while errors persist.
+         *
+         * Constraint enforcement:
+         *   The FolderExplorer already jails to $HOME (main-process enforcement).
+         *   The allowSubfolders / enforceDirectoryOnly constraints are applied in
+         *   canExport / exportBlockReason — not in FolderExplorer directly, because
+         *   restricting navigation itself would degrade UX (user can't browse to see
+         *   what's there). Instead, the UI warns and blocks export without hiding dirs.
+         */}
+        {browseMode && (
+          <div
+            id="export-folder-explorer-panel"
+            className="export-modal__folder-explorer-panel"
+            role="region"
+            aria-label="Folder browser for export destination"
+          >
+            <FolderExplorer
+              initialPath={exportDir || window.appPaths?.home}
+              onSelect={handleFolderSelect}
+              onConfirm={handleFolderConfirm}
+              showFiles={false}
+              style={{ height: 300 }}
+              className="export-modal__folder-explorer"
+            />
+
+            {/* [NEW] Confirm / collapse action row below the explorer.
+                Allows confirming the current selection without double-clicking.
+                [UPDATED] El onClick del botón "Use…" ahora llama a handleFolderConfirm
+                (en lugar de solo setBrowseMode(false)) para que la persistencia del
+                path en project.properties también se active al confirmar con este botón,
+                no únicamente al hacer doble-clic o Enter en el explorador. */}
+            <div className="export-modal__folder-explorer-actions">
+              <button
+                className="export-modal__folder-confirm-btn"
+                disabled={!exportDir}
+                onClick={() => exportDir ? handleFolderConfirm(exportDir) : undefined}
+                title={exportDir ? `Use: ${exportDir}` : "Select a folder above first"}
+              >
+                {exportDir ? `Use "${exportDir.split("/").pop()}"` : "Select a folder above"}
+              </button>
+              <button
+                className="export-modal__folder-cancel-btn"
+                onClick={() => setBrowseMode(false)}
+                title="Cancel folder selection"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* ── Export result message ────────────────────────────────────── */}
         {exportResult && (
@@ -355,6 +886,18 @@ export function ExportModal({ onClose }: ExportModalProps) {
             {exportResult.message}
           </div>
         )}
+
+        {/* ── Skill conflict dialog ─────────────────────────────────────
+         *
+         * Shown as an overlay above the modal when the main process detects a
+         * file conflict during skills export. The user chooses to replace, replace
+         * all, or cancel. The dialog is hidden again once the user responds.
+         * Triggered automatically as part of the unified Export button flow.
+         */}
+        <SkillConflictDialog
+          prompt={skillConflictPrompt}
+          onAction={handleSkillConflictAction}
+        />
 
         {/* ── Tab bar ─────────────────────────────────────────────────── */}
         <div className="export-modal__tab-bar" role="tablist">

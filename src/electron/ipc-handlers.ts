@@ -79,6 +79,14 @@ import type {
   ReadAgentAdataRawRequest,
   ReadAgentAdataRawResult,
   SelectExportDirResult,
+  ExportSkillsRequest,
+  ExportSkillsResult,
+  ExportSkillsConflictPrompt,
+  ExportSkillsConflictResponse,
+  ExportAgentProfilesRequest,
+  ExportAgentProfilesResult,
+  ExportProfileConflictPrompt,
+  ExportProfileConflictResponse,
 } from "./bridge.types.ts";
 
 import {
@@ -88,6 +96,7 @@ import {
   handleRemoveProfile,
   handleReorderProfiles,
 } from "./profile-handlers.ts";
+import { exportAgentProfiles as exportAgentProfilesLogic } from "./profile-export-handlers.ts";
 import { nodeFileAdapter } from "../storage/node-file-adapter.ts";
 import { migrateProjectProfiles } from "../storage/migrate-profiles.ts";
 import {
@@ -103,6 +112,17 @@ import {
 } from "./permissions-handlers.ts";
 import { handleListSkills } from "./skills-handlers.ts";
 import { handleRenameAgentFolder } from "./rename-agent-folder.ts";
+import { exportActiveSkills } from "./skill-export-handlers.ts";
+
+// ── Folder Explorer ────────────────────────────────────────────────────────
+// The folder-explorer handlers live in the electron-main module tree because
+// they depend on the homeJail and filter utilities that also live there.
+// We import the registration function (not the handlers directly) to keep
+// the dependency direction clean: src/electron → electron-main/src/ipc.
+//
+// NOTE: registerFolderExplorerHandlers() receives `ipcMain` as a parameter
+// so that it remains testable without a running Electron instance.
+import { registerFolderExplorerHandlers, FOLDER_EXPLORER_CHANNELS } from "../../electron-main/src/ipc/index.ts";
 
 // ── Recents storage ────────────────────────────────────────────────────────
 
@@ -399,6 +419,16 @@ async function readAgentProfilesFull(
 export function registerIpcHandlers(): void {
   // ── Remove any previously registered handlers (idempotency guard) ──────
   for (const channel of Object.values(IPC_CHANNELS)) {
+    ipcMain.removeHandler(channel);
+  }
+
+  // ── Also remove folder-explorer channels ─────────────────────────────────
+  // FOLDER_EXPLORER_CHANNELS is declared in electron-main/src/ipc/folder-explorer.ts
+  // and NOT part of IPC_CHANNELS (bridge.types.ts). Without this loop, a second
+  // call to registerIpcHandlers() (e.g. on macOS "activate") would throw:
+  //   "Attempted to register a second handler for 'folder-explorer:list'"
+  // Adding new channel-namespaced constants here is the correct extension point.
+  for (const channel of Object.values(FOLDER_EXPLORER_CHANNELS)) {
     ipcMain.removeHandler(channel);
   }
 
@@ -1351,6 +1381,12 @@ export function registerIpcHandlers(): void {
   // a modal dialog is open or when multiple windows exist.  All other dialog
   // handlers in this file follow this same pattern (OPEN_FOLDER_DIALOG,
   // OPEN_FILE_DIALOG, SELECT_NEW_PROJECT_DIR, WRITE_EXPORT_FILE, …).
+  //
+  // WORKAROUND: dialog.showOpenDialog can hang indefinitely when the renderer
+  // modal steals focus or the OS compositor misbehaves. We race the dialog
+  // promise against a 5-second timeout. If the dialog does not resolve within
+  // 5 s we abort gracefully and return { dirPath: null } so the app never
+  // freezes. The whole call is wrapped in try/catch for added safety.
   ipcMain.handle(
     IPC_CHANNELS.SELECT_EXPORT_DIR,
     async (event): Promise<SelectExportDirResult> => {
@@ -1360,14 +1396,27 @@ export function registerIpcHandlers(): void {
         title: "Choose export directory",
         properties: ["openDirectory", "createDirectory"] as ("openDirectory" | "createDirectory")[],
       };
-      const result = win
-        ? await dialog.showOpenDialog(win, opts)
-        : await dialog.showOpenDialog(opts);
-      const dirPath = result.canceled || result.filePaths.length === 0
-        ? null
-        : result.filePaths[0]!;
-      console.log("[ipc] SELECT_EXPORT_DIR: selected →", dirPath ?? "(cancelled)");
-      return { dirPath };
+
+      const DIALOG_TIMEOUT_MS = 5_000;
+      const timeoutPromise = new Promise<never>((_resolve, reject) =>
+        setTimeout(() => reject(new Error(`SELECT_EXPORT_DIR timed out after ${DIALOG_TIMEOUT_MS}ms`)), DIALOG_TIMEOUT_MS)
+      );
+      const dialogPromise = win
+        ? dialog.showOpenDialog(win, opts)
+        : dialog.showOpenDialog(opts);
+
+      try {
+        const result = await Promise.race([dialogPromise, timeoutPromise]);
+        const dirPath = result.canceled || result.filePaths.length === 0
+          ? null
+          : result.filePaths[0]!;
+        console.log("[ipc] SELECT_EXPORT_DIR: selected →", dirPath ?? "(cancelled)");
+        return { dirPath };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error("[ipc] SELECT_EXPORT_DIR: dialog failed or timed out —", message);
+        return { dirPath: null };
+      }
     }
   );
 
@@ -1443,4 +1492,207 @@ export function registerIpcHandlers(): void {
       }
     }
   );
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Skills export handler
+  //
+  // Copies all active skill directories from {projectDir}/skills/ to
+  // {destDir}/skills/. When a file already exists at the destination, the
+  // main process sends a SKILL_CONFLICT_PROMPT event to the renderer and
+  // waits for a SKILL_CONFLICT_RESPONSE reply before continuing.
+  //
+  // The two-way conflict correlation is done via `promptId`:
+  //   1. Main generates a unique promptId and sends SKILL_CONFLICT_PROMPT.
+  //   2. Main waits via ipcMain.once(SKILL_CONFLICT_RESPONSE) filtered by promptId.
+  //   3. Renderer calls respondSkillConflict({ promptId, action }) via preload.
+  //   4. Main receives the response and resolves the conflict callback.
+  // ══════════════════════════════════════════════════════════════════════
+  ipcMain.handle(
+    IPC_CHANNELS.EXPORT_SKILLS,
+    async (event, req: ExportSkillsRequest): Promise<ExportSkillsResult> => {
+      console.log("[ipc] EXPORT_SKILLS: projectDir →", req.projectDir, "destDir →", req.destDir);
+
+      // Counter for generating unique promptIds within this invocation
+      let promptCounter = 0;
+
+      try {
+        const result = await exportActiveSkills(
+          req.projectDir,
+          req.destDir,
+          // Conflict callback: ask the renderer what to do
+          (skillName, fileName) => {
+            return new Promise<"replace" | "replace-all" | "cancel">((resolve) => {
+              const promptId = `skill-conflict-${Date.now()}-${promptCounter++}`;
+
+              const prompt: ExportSkillsConflictPrompt = {
+                promptId,
+                skillName,
+                fileName,
+              };
+
+              // Listen for the renderer's reply BEFORE sending the prompt,
+              // to avoid a race where the reply arrives before we start listening.
+              ipcMain.once(
+                IPC_CHANNELS.SKILL_CONFLICT_RESPONSE,
+                (_responseEvent, response: ExportSkillsConflictResponse) => {
+                  if (response.promptId === promptId) {
+                    resolve(response.action);
+                  }
+                  // If promptId doesn't match (stale reply), we keep waiting —
+                  // but that would be a bug on the renderer side. Log and resolve cancel.
+                  else {
+                    console.warn(
+                      "[ipc] EXPORT_SKILLS: received conflict response with mismatched promptId —",
+                      `expected=${promptId} got=${response.promptId}`,
+                    );
+                    resolve("cancel");
+                  }
+                },
+              );
+
+              // Send conflict prompt to the renderer
+              event.sender.send(IPC_CHANNELS.SKILL_CONFLICT_PROMPT, prompt);
+            });
+          },
+        );
+
+        console.log(
+          "[ipc] EXPORT_SKILLS: complete —",
+          `aborted=${result.aborted}`,
+          `copied=${result.copiedSkills.length}`,
+          `skipped=${result.skippedSkills.length}`,
+          `warnings=${result.warnings.length}`,
+        );
+        if (result.warnings.length > 0) {
+          console.warn(
+            "[ipc] EXPORT_SKILLS: skills allowed but missing from disk:",
+            result.warnings.join(", "),
+          );
+        }
+
+        return {
+          success: true,
+          aborted: result.aborted,
+          copiedSkills: result.copiedSkills,
+          skippedSkills: result.skippedSkills,
+          skillWarnings: result.warnings,
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error("[ipc] EXPORT_SKILLS: error —", message);
+        return { success: false, error: message };
+      }
+    },
+  );
+
+  // ── Agent Profile Export Handler ────────────────────────────────────────
+  // Exports agent profiles from metadata/*.adata as concatenated .md files.
+  // Handles file conflicts with a modal dialog on the renderer side.
+
+  ipcMain.handle(
+    IPC_CHANNELS.EXPORT_AGENT_PROFILES,
+    async (event, req: ExportAgentProfilesRequest): Promise<ExportAgentProfilesResult> => {
+      console.log("[ipc] EXPORT_AGENT_PROFILES: projectDir →", req.projectDir, "destDir →", req.destDir);
+
+      // Counter for generating unique promptIds within this invocation
+      let promptCounter = 0;
+
+      try {
+        const result = await exportAgentProfilesLogic(
+          req.projectDir,
+          req.destDir,
+          // Conflict callback: ask the renderer what to do
+          (destinationPath, agentName) => {
+            return new Promise<"replace" | "replace-all" | "cancel">((resolve) => {
+              const promptId = `profile-conflict-${Date.now()}-${promptCounter++}`;
+
+              const prompt: ExportProfileConflictPrompt = {
+                promptId,
+                agentName,
+                destinationPath,
+              };
+
+              // Listen for the renderer's reply BEFORE sending the prompt,
+              // to avoid a race where the reply arrives before we start listening.
+              ipcMain.once(
+                IPC_CHANNELS.PROFILE_CONFLICT_RESPONSE,
+                (_responseEvent, response: ExportProfileConflictResponse) => {
+                  if (response.promptId === promptId) {
+                    resolve(response.action);
+                  }
+                  // If promptId doesn't match (stale reply), we keep waiting —
+                  // but that would be a bug on the renderer side. Log and resolve cancel.
+                  else {
+                    console.warn(
+                      "[ipc] EXPORT_AGENT_PROFILES: received conflict response with mismatched promptId —",
+                      `expected=${promptId} got=${response.promptId}`,
+                    );
+                    resolve("cancel");
+                  }
+                },
+              );
+
+              // Send conflict prompt to the renderer
+              event.sender.send(IPC_CHANNELS.PROFILE_CONFLICT_PROMPT, prompt);
+            });
+          },
+        );
+
+        console.log(
+          "[ipc] EXPORT_AGENT_PROFILES: complete —",
+          `exported=${result.summary.exportedCount}`,
+          `skipped=${result.summary.skippedCount}`,
+          `warnings=${result.summary.warningCount}`,
+        );
+        if (result.warnings.length > 0) {
+          console.warn(
+            "[ipc] EXPORT_AGENT_PROFILES: warnings —",
+            result.warnings.join("; "),
+          );
+        }
+
+        return result;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error("[ipc] EXPORT_AGENT_PROFILES: error —", message);
+        return {
+          success: false,
+          exported: [],
+          skipped: [],
+          warnings: [message],
+          summary: {
+            totalAgents: 0,
+            exportedCount: 0,
+            skippedCount: 0,
+            warningCount: 1,
+          },
+          error: message,
+        };
+      }
+    },
+  );
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Folder Explorer handlers
+  //
+  // The three `folder-explorer:*` channels are registered via the dedicated
+  // module in electron-main/src/ipc/folder-explorer.ts.
+  //
+  // Design rationale:
+  //   • Handler logic lives in electron-main (testable without Electron).
+  //   • This call is the ONLY place that wires them into the live ipcMain.
+  //   • registerFolderExplorerHandlers() follows the same "ipcMain as param"
+  //     pattern used by profile-handlers, permissions-handlers, etc.
+  //
+  // Channels registered:
+  //   • folder-explorer:list          → lists entries under $HOME
+  //   • folder-explorer:stat          → metadata for a single path
+  //   • folder-explorer:read-children → batch-list parallel directories
+  //
+  // Order note: the folder-explorer group is placed LAST in this function.
+  // There is no dependency on any prior handler, but registering it last
+  // ensures core project-loading channels are always available first, which
+  // matches user-observable startup priority.
+  // ══════════════════════════════════════════════════════════════════════
+  registerFolderExplorerHandlers(ipcMain);
 }

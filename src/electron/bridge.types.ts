@@ -337,6 +337,72 @@ export const IPC_CHANNELS = {
 
   // Reads the raw .adata object for a given agent (for properties display)
   READ_AGENT_ADATA_RAW: "export:readAgentAdataRaw",
+
+  // ── Folder Explorer channels ───────────────────────────────────────────────
+  //
+  // These channels power the home-sandboxed in-app folder browser. They are
+  // purposely grouped at the end so they do NOT conflict with any existing
+  // channel name. The "folder-explorer:" prefix is the authoritative namespace.
+  //
+  // ⚠️  CONFLICT NOTE: These channels are also declared in
+  //     FOLDER_EXPLORER_CHANNELS (electron-main/src/ipc/folder-explorer.ts).
+  //     Both constant objects MUST agree on the exact string values — if you
+  //     rename a channel here, rename it there too (and vice-versa).
+  //     The TypeScript compiler will NOT catch a mismatch between two `const`
+  //     objects that happen to have different string literals.
+  //
+  // Lists visible entries of a directory under $HOME (apply filter options).
+  FOLDER_EXPLORER_LIST:          "folder-explorer:list",
+
+  // Returns metadata (exists, isDirectory, readable) for a single $HOME path.
+  FOLDER_EXPLORER_STAT:          "folder-explorer:stat",
+
+  // Batch-lists multiple sub-directories in parallel (virtualised tree support).
+  FOLDER_EXPLORER_READ_CHILDREN: "folder-explorer:read-children",
+
+  // ── Skills export channels ─────────────────────────────────────────────────
+  //
+  // Copies all active skill directories from {projectDir}/skills/ to
+  // {destDir}/skills/. When a destination file already exists, the main process
+  // sends a conflict prompt to the renderer and waits for a response before
+  // continuing or aborting.
+  //
+  // Channels:
+  //   EXPORT_SKILLS            — renderer→main invoke: starts the export
+  //   SKILL_CONFLICT_PROMPT    — main→renderer send:   asks user what to do with a conflict
+  //   SKILL_CONFLICT_RESPONSE  — renderer→main send:   user's answer to the conflict prompt
+
+  // Renderer invokes this to start skills export. Resolves with ExportSkillsResult.
+  EXPORT_SKILLS: "export:skills",
+
+  // Main sends this to renderer when a destination file already exists.
+  // Renderer must reply with SKILL_CONFLICT_RESPONSE using the same promptId.
+  SKILL_CONFLICT_PROMPT: "skill-conflict:prompt",
+
+  // Renderer sends this back to main as the user's response to a conflict prompt.
+  SKILL_CONFLICT_RESPONSE: "skill-conflict:response",
+
+  // ── Profile export channels ────────────────────────────────────────────────
+  //
+  // Concatenates and exports agent profile .md files from {projectDir}/metadata/*.adata
+  // to {destDir}/prompts/[projectName]/[agentName].md. When a destination file already
+  // exists, the main process sends a conflict prompt to the renderer and waits for a
+  // response before continuing or aborting.
+  //
+  // Channels:
+  //   EXPORT_AGENT_PROFILES      — renderer→main invoke: starts the export
+  //   PROFILE_CONFLICT_PROMPT    — main→renderer send:   asks user what to do with a conflict
+  //   PROFILE_CONFLICT_RESPONSE  — renderer→main send:   user's answer to the conflict prompt
+
+  // Renderer invokes this to start agent profile export. Resolves with ExportAgentProfilesResult.
+  EXPORT_AGENT_PROFILES: "export:agent-profiles",
+
+  // Main sends this to renderer when a destination file already exists.
+  // Renderer must reply with PROFILE_CONFLICT_RESPONSE using the same promptId.
+  PROFILE_CONFLICT_PROMPT: "profile-conflict:prompt",
+
+  // Renderer sends this back to main as the user's response to a conflict prompt.
+  PROFILE_CONFLICT_RESPONSE: "profile-conflict:response",
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
@@ -1051,6 +1117,242 @@ export interface ReadAgentAdataRawResult {
   error?: string;
 }
 
+// ── Folder Explorer IPC types ──────────────────────────────────────────────
+//
+// These are re-declared here (mirroring the authoritative types in
+// electron-main/src/ipc/folder-explorer.ts) so that:
+//   - preload.ts can import them from a single bridge-level location.
+//   - renderer hooks can import them from bridge.types.ts without depending
+//     on the electron-main module tree.
+//
+// Rule: if the authoritative shape changes in folder-explorer.ts, update here
+// too. A future refactor may re-export directly from the source file.
+
+/** A single directory entry surfaced to the renderer */
+export interface FolderExplorerDirEntry {
+  /** Basename only (never a full path) */
+  name: string;
+  /** True if the entry is a directory */
+  isDirectory: boolean;
+  /**
+   * Resolved absolute path (guaranteed to be inside $HOME).
+   * The renderer can pass this back directly in subsequent IPC calls.
+   */
+  path: string;
+}
+
+/** Lightweight metadata about a single path (from `folder-explorer:stat`) */
+export interface FolderExplorerPathStat {
+  path: string;
+  exists: boolean;
+  isDirectory: boolean;
+  readable: boolean;
+}
+
+/** All normalised error codes the folder-explorer IPC can return */
+export type FolderExplorerErrorCode =
+  | "E_NOT_IN_HOME"
+  | "E_NOT_FOUND"
+  | "E_NOT_A_DIR"
+  | "E_ACCESS_DENIED"
+  | "E_UNKNOWN";
+
+/** Error envelope — always serialisable over IPC */
+export interface FolderExplorerError {
+  ok: false;
+  code: FolderExplorerErrorCode;
+  message: string;
+}
+
+/** Successful response from `folder-explorer:list` */
+export interface FolderExplorerListResult {
+  ok: true;
+  dirPath: string;
+  entries: FolderExplorerDirEntry[];
+}
+
+/** Successful response from `folder-explorer:stat` */
+export interface FolderExplorerStatResult {
+  ok: true;
+  stat: FolderExplorerPathStat;
+}
+
+/** Successful response from `folder-explorer:read-children` */
+export interface FolderExplorerReadChildrenResult {
+  ok: true;
+  results: Record<string, FolderExplorerListResult | FolderExplorerError>;
+}
+
+/** Union response for `folder-explorer:list` */
+export type FolderExplorerListResponse = FolderExplorerListResult | FolderExplorerError;
+
+/** Union response for `folder-explorer:stat` */
+export type FolderExplorerStatResponse = FolderExplorerStatResult | FolderExplorerError;
+
+/** Union response for `folder-explorer:read-children` */
+export type FolderExplorerReadChildrenResponse =
+  | FolderExplorerReadChildrenResult
+  | FolderExplorerError;
+
+/**
+ * Filter options passed as part of the folder-explorer:list and
+ * folder-explorer:read-children payloads.
+ * Mirrors FilterOptions from electron-main/src/fs/filter.ts.
+ */
+export interface FolderExplorerFilterOptions {
+  /** When true, hidden entries (starting with ".") are included. Default: false */
+  showHidden?: boolean;
+  /** When true, only directories are returned. Default: false */
+  directoriesOnly?: boolean;
+  /** Additional entry names to block (on top of the built-in blocklist). */
+  extraBlocklist?: string[];
+  /**
+   * When provided, only entries whose extension matches one of these values
+   * are returned. Extensions should NOT include the leading dot ("ts", not ".ts").
+   * Only meaningful when directoriesOnly is false.
+   */
+  allowedExtensions?: string[];
+}
+
+/** Request payload for `folder-explorer:list` */
+export interface FolderExplorerListRequest {
+  path: string;
+  options?: FolderExplorerFilterOptions;
+}
+
+/** Request payload for `folder-explorer:stat` */
+export interface FolderExplorerStatRequest {
+  path: string;
+}
+
+/** Request payload for `folder-explorer:read-children` */
+export interface FolderExplorerReadChildrenRequest {
+  paths: string[];
+  options?: FolderExplorerFilterOptions;
+}
+
+// ── Skills export IPC types ────────────────────────────────────────────────
+//
+// Skills export copies active skill directories from the project's `skills/`
+// folder to `<destDir>/skills/`. When a file already exists at the destination
+// the main process sends a conflict prompt to the renderer; the renderer
+// displays a dialog and responds with the user's choice.
+//
+// Flow:
+//   1. Renderer calls bridge.exportSkills({ projectDir, destDir }) via IPC
+//   2. Main process detects a conflict and sends SKILL_CONFLICT_PROMPT to renderer
+//   3. Renderer shows the dialog and sends SKILL_CONFLICT_RESPONSE back
+//   4. Main process continues or aborts based on the response
+//   5. bridge.exportSkills resolves with ExportSkillsResult
+
+/** Request payload for the EXPORT_SKILLS channel */
+export interface ExportSkillsRequest {
+  /** Absolute path to the project directory (source) */
+  projectDir: string;
+  /** Absolute path to the export destination directory */
+  destDir: string;
+}
+
+/** Result returned by the EXPORT_SKILLS channel */
+export interface ExportSkillsResult {
+  success: boolean;
+  /** Whether the user cancelled the operation */
+  aborted?: boolean;
+  /** Skills that were successfully copied */
+  copiedSkills?: string[];
+  /** Skills that were skipped (source missing or not a directory) */
+  skippedSkills?: string[];
+  /**
+   * Skill names (dash-joined) that appear in permissions.skills with value "allow"
+   * (or matched by a wildcard pattern) but have NO matching directory in skills/.
+   */
+  skillWarnings?: string[];
+  error?: string;
+}
+
+/**
+ * Conflict prompt sent FROM main TO renderer via ipcRenderer.on().
+ * Renderer shows a dialog and replies with ExportSkillsConflictResponse.
+ */
+export interface ExportSkillsConflictPrompt {
+  /** Unique ID for this prompt — used to correlate the response */
+  promptId: string;
+  /** Skill directory name (e.g. "kb-search") */
+  skillName: string;
+  /** File that already exists (relative to skill dir, e.g. "SKILL.md") */
+  fileName: string;
+}
+
+/** User's response to a conflict prompt */
+export type ExportSkillsConflictAction = "replace" | "replace-all" | "cancel";
+
+/**
+ * Response sent FROM renderer TO main via ipcRenderer.send().
+ * Correlates to a specific ExportSkillsConflictPrompt via promptId.
+ */
+export interface ExportSkillsConflictResponse {
+  /** Must match the promptId from ExportSkillsConflictPrompt */
+  promptId: string;
+  /** User's chosen action */
+  action: ExportSkillsConflictAction;
+}
+
+// ── Profile Export Types ───────────────────────────────────────────────────
+
+/** Request sent by renderer to main to export agent profiles */
+export interface ExportAgentProfilesRequest {
+  /** Absolute path to the project directory (source) */
+  projectDir: string;
+  /** Absolute path to the export destination directory */
+  destDir: string;
+}
+
+/** Result returned by the EXPORT_AGENT_PROFILES channel */
+export interface ExportAgentProfilesResult {
+  success: boolean;
+  /** Agents that were successfully exported */
+  exported: Array<{ agentName: string; path: string }>;
+  /** Agents that were skipped (no profiles or all failed) */
+  skipped: Array<{ agentName: string; reason: string }>;
+  /** Warnings (missing files, permissions, etc.) */
+  warnings: string[];
+  /** Summary statistics */
+  summary: {
+    totalAgents: number;
+    exportedCount: number;
+    skippedCount: number;
+    warningCount: number;
+  };
+  error?: string;
+}
+
+/**
+ * Conflict prompt sent FROM main TO renderer via ipcRenderer.on().
+ * Renderer shows a dialog and replies with ExportProfileConflictResponse.
+ */
+export interface ExportProfileConflictPrompt {
+  /** Unique ID for this prompt — used to correlate the response */
+  promptId: string;
+  /** Agent name (e.g. "research-agent") */
+  agentName: string;
+  /** Absolute path to the destination file that already exists */
+  destinationPath: string;
+}
+
+/** User's response to a profile conflict prompt */
+export type ExportProfileConflictAction = "replace" | "replace-all" | "cancel";
+
+/**
+ * Response sent FROM renderer TO main via ipcRenderer.send().
+ * Correlates to a specific ExportProfileConflictPrompt via promptId.
+ */
+export interface ExportProfileConflictResponse {
+  /** Must match the promptId from ExportProfileConflictPrompt */
+  promptId: string;
+  /** User's chosen action */
+  action: ExportProfileConflictAction;
+}
+
 export interface AgentsFlowBridge {
   /**
    * Opens a native folder picker dialog.
@@ -1295,14 +1597,132 @@ export interface AgentsFlowBridge {
    * Used by the Export modal Agents tab properties preview.
    */
   readAgentAdataRaw(req: ReadAgentAdataRawRequest): Promise<ReadAgentAdataRawResult>;
-}
 
-// ── Global type augmentation ──────────────────────────────────────────────
-// Extend the Window interface so TypeScript knows about window.agentsFlow
-// everywhere in the renderer without casting.
+  // ── Folder Explorer ───────────────────────────────────────────────────────
+  //
+  // Home-sandboxed in-app directory browser. The three methods here mirror
+  // the three IPC channels in FOLDER_EXPLORER_CHANNELS.
+  //
+  // Security: every path is validated server-side (main process) before any
+  // filesystem operation — the renderer never gets an unvalidated result.
+  // Paths returned in responses are guaranteed to be inside $HOME.
+
+  /**
+   * Lists the visible entries of a single directory under $HOME.
+   *
+   * On success: `{ ok: true, dirPath, entries: FolderExplorerDirEntry[] }`
+   * On failure: `{ ok: false, code: FolderExplorerErrorCode, message }`
+   */
+  folderExplorerList(req: FolderExplorerListRequest): Promise<FolderExplorerListResponse>;
+
+  /**
+   * Returns metadata (exists, isDirectory, readable) for a single $HOME path.
+   * Unlike `folderExplorerList`, this works for both files and directories.
+   * Returns `{ ok: true, stat: { exists: false } }` for non-existent but
+   * in-home paths instead of an error, so callers can safely probe existence.
+   */
+  folderExplorerStat(req: FolderExplorerStatRequest): Promise<FolderExplorerStatResponse>;
+
+  /**
+   * Batch-lists multiple directories in parallel. Each path in `paths` is
+   * processed independently — a single bad path does not abort the whole
+   * batch. The response always has `ok: true` at the top level; per-entry
+   * failures are surfaced in the `results` record.
+   */
+  folderExplorerReadChildren(req: FolderExplorerReadChildrenRequest): Promise<FolderExplorerReadChildrenResponse>;
+
+  // ── Skills export ─────────────────────────────────────────────────────────
+
+  /**
+   * Copies all active skill directories from {projectDir}/skills/ to
+   * {destDir}/skills/. When a destination file already exists, the main
+   * process sends a SKILL_CONFLICT_PROMPT event to the renderer.
+   *
+   * The renderer must have registered a conflict listener via onSkillConflict()
+   * before calling this — otherwise conflicts cannot be resolved and the
+   * export will time out.
+   *
+   * Returns ExportSkillsResult (success, aborted, copiedSkills, skippedSkills).
+   */
+  exportSkills(req: ExportSkillsRequest): Promise<ExportSkillsResult>;
+
+  /**
+   * Registers a callback that is invoked whenever the main process sends a
+   * SKILL_CONFLICT_PROMPT event (a file already exists in the destination).
+   *
+   * The callback receives the ExportSkillsConflictPrompt and must respond
+   * by calling respondSkillConflict() with the same promptId.
+   *
+   * Only one listener is active at a time — calling this again replaces the
+   * previous listener.
+   */
+  onSkillConflict(callback: (prompt: ExportSkillsConflictPrompt) => void): void;
+
+  /**
+   * Removes the SKILL_CONFLICT_PROMPT listener registered via onSkillConflict().
+   * Must be called when the component that handles conflicts unmounts or closes.
+   */
+  offSkillConflict(): void;
+
+  /**
+   * Sends the user's conflict resolution choice back to the main process.
+   * The promptId must match the one received in the ExportSkillsConflictPrompt.
+   */
+  respondSkillConflict(response: ExportSkillsConflictResponse): void;
+
+  /**
+   * Exports agent profiles from metadata/*.adata as concatenated .md files
+   * to [destDir]/prompts/[projectName]/[agentName].md.
+   *
+   * When a destination file already exists, the main process sends a
+   * PROFILE_CONFLICT_PROMPT event and waits for a response via
+   * respondProfileConflict().
+   *
+   * Returns ExportAgentProfilesResult with exported agents, skipped agents,
+   * warnings, and summary statistics.
+   */
+  exportAgentProfiles(req: ExportAgentProfilesRequest): Promise<ExportAgentProfilesResult>;
+
+  /**
+   * Registers a callback that is invoked whenever the main process sends a
+   * PROFILE_CONFLICT_PROMPT event (a file already exists in the destination).
+   *
+   * The callback receives the ExportProfileConflictPrompt and must respond
+   * by calling respondProfileConflict() with the same promptId.
+   *
+   * Only one listener is active at a time — calling this again replaces the
+   * previous listener.
+   */
+  onProfileConflict(callback: (prompt: ExportProfileConflictPrompt) => void): void;
+
+  /**
+   * Removes the PROFILE_CONFLICT_PROMPT listener registered via onProfileConflict().
+   * Must be called when the component that handles conflicts unmounts or closes.
+   */
+  offProfileConflict(): void;
+
+   /**
+    * Sends the user's conflict resolution choice back to the main process.
+    * The promptId must match the one received in the ExportProfileConflictPrompt.
+    */
+   respondProfileConflict(response: ExportProfileConflictResponse): void;
+ }
+
+ // ── Global type augmentation ──────────────────────────────────────────────
+ // Extend the Window interface so TypeScript knows about window.agentsFlow
+ // everywhere in the renderer without casting.
 
 declare global {
   interface Window {
     agentsFlow: AgentsFlowBridge;
+    /**
+     * Static OS paths exposed by the preload via contextBridge.
+     * Resolved once on startup in the Node/Electron context.
+     * Use window.appPaths?.home instead of hard-coding "/home/<user>/".
+     */
+    appPaths?: {
+      /** os.homedir() — cross-platform user home directory. */
+      home: string;
+    };
   }
 }
