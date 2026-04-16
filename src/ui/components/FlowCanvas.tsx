@@ -453,6 +453,8 @@ interface CanvasNodeProps {
   isLinkTarget: boolean;
   /** Whether a link drag is currently in progress (from any node) */
   isLinkDragActive: boolean;
+  /** Current canvas zoom level — used to counter-scale action buttons */
+  zoom: number;
   /** Called when the user starts dragging the handle (to move the node) */
   onHandleMouseDown: (id: string, e: React.MouseEvent) => void;
   /** Called when user starts dragging from the dedicated connection grip */
@@ -471,6 +473,7 @@ function CanvasNode({
   id, name, type, isOrchestrator, x, y,
   isDragging, dragX, dragY,
   isSelected, isLinkTarget, isLinkDragActive,
+  zoom,
   onHandleMouseDown,
   onGripMouseDown,
   onBodyClick,
@@ -518,7 +521,10 @@ function CanvasNode({
       onClick={(e) => { e.stopPropagation(); }}
     >
       {/* ── Actions row: handle (drag to move) + edit + delete ──────────── */}
-      <div className="flow-canvas__node-actions">
+      <div
+        className="flow-canvas__node-actions"
+        style={{ transform: `scale(${1 / zoom})`, transformOrigin: "top right" }}
+      >
         {/* Handle button — drag starts node move */}
         <button
           className="flow-canvas__node-btn flow-canvas__node-btn--handle"
@@ -1724,6 +1730,7 @@ export function FlowCanvas() {
               linkDrag?.fromAgentId !== agent.id
             }
             isLinkDragActive={isDraggingLink}
+            zoom={viewport.zoom}
             onHandleMouseDown={startDrag}
             onGripMouseDown={startLinkDrag}
             onBodyClick={handleBodyClick}
