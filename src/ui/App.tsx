@@ -152,6 +152,22 @@ function EditorView() {
     }
   }
 
+  // ── Hamburger menu state ─────────────────────────────────────────────────
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close menu on outside click
+  useEffect(() => {
+    if (!menuOpen) return;
+    function handleOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [menuOpen]);
+
   const issueCount = lastLoadResult?.issues.length ?? 0;
   const errorCount = lastLoadResult?.summary.errors ?? 0;
   const warningCount = lastLoadResult?.summary.warnings ?? 0;
@@ -238,47 +254,68 @@ function EditorView() {
         <aside className="editor-view__sidebar" aria-label="Agents">
           {/* ── Agents header + "New agent" button ──────────────── */}
           <div className="editor-view__sidebar-header">
+            {/* ── Hamburger menu ──────────────────────────────────── */}
+            <div className="editor-view__hamburger-wrap" ref={menuRef}>
+              <button
+                className={`editor-view__hamburger-btn${menuOpen ? " editor-view__hamburger-btn--open" : ""}`}
+                onClick={() => setMenuOpen((v) => !v)}
+                title="Menu"
+                aria-label="Open actions menu"
+                aria-haspopup="true"
+                aria-expanded={menuOpen}
+              >
+                ≡
+              </button>
+
+              {menuOpen && (
+                <div className="editor-view__hamburger-popup" role="menu">
+                  <button
+                    className={`editor-view__hamburger-item${isPlacing ? " editor-view__hamburger-item--disabled" : ""}`}
+                    onClick={() => { startPlacement(); setMenuOpen(false); }}
+                    disabled={isPlacing}
+                    role="menuitem"
+                    aria-label="New agent"
+                  >
+                    <span aria-hidden="true">＋</span> New agent
+                  </button>
+
+                  {!userNode ? (
+                    <button
+                      className="editor-view__hamburger-item"
+                      onClick={() => { addUserNode(60, 60); setMenuOpen(false); }}
+                      role="menuitem"
+                      aria-label="Add User node"
+                    >
+                      <span aria-hidden="true">👤</span> User
+                    </button>
+                  ) : (
+                    <button
+                      className="editor-view__hamburger-item editor-view__hamburger-item--disabled"
+                      disabled
+                      role="menuitem"
+                      title="User node already on canvas"
+                      aria-label="User node already on canvas"
+                    >
+                      <span aria-hidden="true">👤</span> User ✓
+                    </button>
+                  )}
+
+                  <button
+                    className={`editor-view__hamburger-item${(isSyncingTasks || !project?.projectDir) ? " editor-view__hamburger-item--disabled" : ""}`}
+                    onClick={() => { handleSyncTasks(); setMenuOpen(false); }}
+                    disabled={isSyncingTasks || !project?.projectDir}
+                    role="menuitem"
+                    aria-label="Sync Tasks"
+                  >
+                    <span aria-hidden="true">{isSyncingTasks ? "⏳" : "⚡"}</span>
+                    {isSyncingTasks ? "Syncing…" : "Sync task"}
+                  </button>
+                </div>
+              )}
+            </div>
+
             <h2 className="editor-view__sidebar-title">Agents</h2>
             <span className="editor-view__sidebar-count">{flowAgents.length}</span>
-            <button
-              className={`editor-view__new-agent-btn${isPlacing ? " editor-view__new-agent-btn--active" : ""}`}
-              onClick={startPlacement}
-              disabled={isPlacing}
-              title="Add a new agent to the canvas"
-              aria-label="New agent"
-            >
-              + New agent
-            </button>
-            {/* "Add User" button — only shown when no User node exists yet */}
-            {!userNode && (
-              <button
-                className="editor-view__add-user-btn"
-                onClick={() => addUserNode(60, 60)}
-                title="Add a User node to the canvas (only one allowed)"
-                aria-label="Add User node"
-              >
-                👤 Add User
-              </button>
-            )}
-            {userNode && (
-              <span
-                className="editor-view__user-node-badge"
-                title="User node is already on the canvas"
-                aria-label="User node present"
-              >
-                👤 User ✓
-              </span>
-            )}
-            {/* "Sync Tasks" button — writes permissions.task to .adata files */}
-            <button
-              className="editor-view__sync-tasks-btn"
-              onClick={handleSyncTasks}
-              disabled={isSyncingTasks || !project?.projectDir}
-              title="Sync task delegations from canvas links to .adata files"
-              aria-label="Sync Tasks"
-            >
-              {isSyncingTasks ? "⏳ Syncing…" : "⚡ Sync Tasks"}
-            </button>
           </div>
 
           {/* ── Sync Tasks result toast ───────────────────────────── */}
