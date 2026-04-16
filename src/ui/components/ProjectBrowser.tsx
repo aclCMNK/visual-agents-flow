@@ -49,7 +49,7 @@ export function ProjectBrowser() {
         <img
           src={logoEditorSvg}
           alt="AgentsFlow logo"
-          style={{ display: "block", maxWidth: "320px", width: "100%", margin: "0 auto 1rem auto" }}
+          style={{ display: "block", maxWidth: "680px", width: "100%", margin: "0 auto 1.5rem auto" }}
         />
       </header>
 

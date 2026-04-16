@@ -209,19 +209,21 @@ button:disabled {
 .project-browser__btn {
 	display: inline-flex;
 	align-items: center;
-	gap: 8px;
-	padding: 7px 16px;
+	gap: 5px;
+	padding: 3px 11px;
 	border-radius: var(--radius-md);
-	font-size: 0.875rem;
+	font-size: 0.8rem;
 	font-weight: 500;
 	transition: background var(--transition), opacity var(--transition);
+	height: 26px;
+	line-height: 1;
 }
 
 .project-browser__btn--primary {
 	background: var(--color-primary);
 	color: white;
-	padding: 8px 22px;
-	font-size: 0.9rem;
+	padding: 3px 14px;
+	font-size: 0.8rem;
 }
 
 .project-browser__btn--primary:hover:not(:disabled) {
@@ -240,7 +242,7 @@ button:disabled {
 
 .project-browser__btn--ghost {
 	color: var(--color-text-muted);
-	padding: 6px 12px;
+	padding: 3px 8px;
 }
 
 .project-browser__btn--ghost:hover:not(:disabled) {
@@ -265,18 +267,18 @@ button:disabled {
 	list-style: none;
 	display: flex;
 	flex-direction: column;
-	gap: 4px;
+	gap: 2px;
 }
 
 .project-browser__recent-item {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	gap: 12px;
+	gap: 8px;
 	background: transparent;
 	border: 1px solid var(--color-border);
 	border-radius: var(--radius-md);
-	padding: 7px 12px;
+	padding: 4px 10px;
 	transition: border-color var(--transition), background var(--transition);
 	opacity: 0.75;
 }
@@ -288,30 +290,33 @@ button:disabled {
 
 .project-browser__recent-info {
 	display: flex;
-	flex-direction: column;
-	gap: 2px;
+	flex-direction: row;
+	align-items: center;
+	gap: 8px;
 	min-width: 0;
 }
 
 .project-browser__recent-name {
 	font-weight: 500;
-	font-size: 0.875rem;
+	font-size: 0.72rem;
 	color: var(--color-text-muted);
+	white-space: nowrap;
 }
 
 .project-browser__recent-path {
-	font-size: 0.8rem;
+	font-size: 0.68rem;
 	color: var(--color-text-muted);
 	font-family: var(--font-mono);
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
-	max-width: 380px;
+	max-width: 300px;
 }
 
 .project-browser__recent-date {
-	font-size: 0.75rem;
+	font-size: 0.65rem;
 	color: var(--color-text-dim);
+	white-space: nowrap;
 }
 
 .project-browser__recent-actions {
