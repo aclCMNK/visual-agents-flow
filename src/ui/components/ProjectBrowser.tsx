@@ -16,6 +16,7 @@
 import { useEffect, useState } from "react";
 import { useProjectStore } from "../store/projectStore.ts";
 import { NewProjectModal } from "./NewProjectModal.tsx";
+import logoEditorSvg from "../../assets/logos/logo editor.svg";
 
 // ── Component ──────────────────────────────────────────────────────────────
 
@@ -45,10 +46,11 @@ export function ProjectBrowser() {
     <div className="project-browser">
       {/* ── Header ─────────────────────────────────────────────────── */}
       <header className="project-browser__header">
-        <h1 className="project-browser__title">AgentsFlow</h1>
-        <p className="project-browser__subtitle">
-          Editor visual de Agentes y Subagentes para DrassMemorIA
-        </p>
+        <img
+          src={logoEditorSvg}
+          alt="AgentsFlow logo"
+          style={{ display: "block", maxWidth: "350px", width: "100%", margin: "0 auto 2rem auto" }}
+        />
       </header>
 
       {/* ── Error banner ───────────────────────────────────────────── */}
