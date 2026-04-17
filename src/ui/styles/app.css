@@ -2769,6 +2769,7 @@ button:disabled {
 		background 180ms ease,
 		border-color 180ms ease,
 		box-shadow 180ms ease;
+	cursor: pointer;
 }
 
 /* ── Visually hidden native input (accessible but invisible) ────────────── */

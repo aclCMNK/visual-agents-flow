@@ -459,8 +459,12 @@ function TemperatureField({ agentId }: TemperatureFieldProps) {
 
   // Determine agent type for conditional Hidden toggle visibility
   const agents = useAgentFlowStore((s) => s.agents);
-  const agentType = agents.find((a) => a.id === agentId)?.type ?? "Agent";
+  const updateAgent = useAgentFlowStore((s) => s.updateAgent);
+  const agentFromStore = agents.find((a) => a.id === agentId);
+  const agentType = agentFromStore?.type ?? "Agent";
   const isSubagent = agentType === "Sub-Agent";
+  // Track the store's hidden value so we can detect external changes (e.g. modal save)
+  const storeHidden = agentFromStore?.hidden ?? false;
 
   // ── Temperature state ─────────────────────────────────────────────────
   // Display as string to allow partial typing (e.g. "0."); persist as float
@@ -485,6 +489,18 @@ function TemperatureField({ agentId }: TemperatureFieldProps) {
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stepsSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Sync hidden when store changes externally (e.g. modal save) ───────
+  // Skip if the change was initiated by this component (handleHiddenToggle
+  // already calls setHidden before this fires).
+  const isLocalToggleRef = useRef(false);
+  useEffect(() => {
+    if (isLocalToggleRef.current) {
+      isLocalToggleRef.current = false;
+      return;
+    }
+    setHidden(storeHidden);
+  }, [storeHidden]);
 
   // ── Load existing config from .adata ──────────────────────────────────
   useEffect(() => {
@@ -622,8 +638,11 @@ function TemperatureField({ agentId }: TemperatureFieldProps) {
   // ── Hidden handlers ────────────────────────────────────────────────────
   function handleHiddenToggle() {
     const next = !hidden;
+    isLocalToggleRef.current = true; // prevent sync effect from overwriting our optimistic update
     setHidden(next);
     persistAll({ hidden: next });
+    // Keep agentFlowStore in sync so AgentEditModal reads the latest value
+    updateAgent(agentId, { hidden: next });
   }
 
   // ── Steps handlers ─────────────────────────────────────────────────────
@@ -771,7 +790,10 @@ function TemperatureField({ agentId }: TemperatureFieldProps) {
               {OPENCODE_HIDDEN_TOOLTIP_TEXT}
             </div>
           )}
-          <span className="agent-hidden-toggle__track">
+          <label
+            htmlFor="opencode-hidden-toggle"
+            className="agent-hidden-toggle__track"
+          >
             <input
               id="opencode-hidden-toggle"
               type="checkbox"
@@ -781,7 +803,7 @@ function TemperatureField({ agentId }: TemperatureFieldProps) {
               aria-label={hidden ? "Hidden: true" : "Hidden: false"}
             />
             <span className="agent-hidden-toggle__thumb" aria-hidden="true" />
-          </span>
+          </label>
         </div>
       )}
 
