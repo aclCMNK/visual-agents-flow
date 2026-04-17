@@ -98,6 +98,10 @@ export interface OpenCodeExportConfig {
   fileExtension: "json" | "jsonc";
   /** Plugin paths to include in the output */
   plugins: PluginEntry[];
+  /** Whether to hide the default planner agent in the exported config */
+  hideDefaultPlanner: boolean;
+  /** Whether to hide the default builder agent in the exported config */
+  hideDefaultBuilder: boolean;
 }
 
 /** Default schema URL for OpenCode config files */
@@ -112,6 +116,8 @@ export function makeDefaultOpenCodeConfig(): OpenCodeExportConfig {
     defaultAgentId: "",
     fileExtension: "json",
     plugins: [],
+    hideDefaultPlanner: false,
+    hideDefaultBuilder: false,
   };
 }
 

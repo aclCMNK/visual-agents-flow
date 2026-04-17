@@ -235,7 +235,19 @@ export function ExportModal({
   // ── Modal state ────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<ExportTab>("general");
   const [exportDir, setExportDir] = useState<string>("");
-  const [config, setConfig] = useState<OpenCodeExportConfig>(makeDefaultOpenCodeConfig);
+  const [config, setConfig] = useState<OpenCodeExportConfig>(() => {
+    // Initialize General-tab fields from project.properties if available
+    const props = project?.properties ?? {};
+    const defaults = makeDefaultOpenCodeConfig();
+    return {
+      ...defaults,
+      defaultAgentId:      typeof props.defaultAgent      === "string"  ? props.defaultAgent      : defaults.defaultAgentId,
+      fileExtension:       (props.fileExtension === "json" || props.fileExtension === "jsonc") ? props.fileExtension : defaults.fileExtension,
+      autoUpdate:          typeof props.autoupdate         === "boolean" ? props.autoupdate         : defaults.autoUpdate,
+      hideDefaultPlanner:  typeof props.hideDefaultPlanner === "boolean" ? props.hideDefaultPlanner : defaults.hideDefaultPlanner,
+      hideDefaultBuilder:  typeof props.hideDefaultBuilder === "boolean" ? props.hideDefaultBuilder : defaults.hideDefaultBuilder,
+    };
+  });
   const [isExporting, setIsExporting] = useState(false);
   const [exportResult, setExportResult] = useState<{ success: boolean; message: string } | null>(null);
 
@@ -551,6 +563,25 @@ export function ExportModal({
   const handleFolderError = useCallback((err: IpcError) => {
     setFolderError(err);
   }, []);
+
+  // ── [NEW] saveGeneralProperties ──────────────────────────────────────────
+  // Persists the five General-tab fields to project.properties in real-time.
+  // Called after every user interaction in the General tab that changes config.
+  // Best-effort: failures are logged but do not interrupt the UX.
+  const saveGeneralProperties = useCallback((next: OpenCodeExportConfig) => {
+    if (!project) return;
+    const updatedProperties: Record<string, unknown> = {
+      ...(project.properties ?? {}),
+      defaultAgent:        next.defaultAgentId,
+      fileExtension:       next.fileExtension,
+      autoupdate:          next.autoUpdate,
+      hideDefaultPlanner:  next.hideDefaultPlanner,
+      hideDefaultBuilder:  next.hideDefaultBuilder,
+    };
+    saveProject({ properties: updatedProperties }).catch((err: unknown) => {
+      console.warn("[ExportModal] No se pudo guardar la configuración general en project.properties:", err);
+    });
+  }, [project, saveProject]);
 
   const handleExport = useCallback(async () => {
     if (!project || !bridge || !canExport) return;
@@ -1011,7 +1042,11 @@ export function ExportModal({
                     role="switch"
                     aria-checked={config.autoUpdate}
                     className={`export-modal__switch${config.autoUpdate ? " export-modal__switch--on" : ""}`}
-                    onClick={() => setConfig((c) => ({ ...c, autoUpdate: !c.autoUpdate }))}
+                    onClick={() => setConfig((c) => {
+                      const next = { ...c, autoUpdate: !c.autoUpdate };
+                      saveGeneralProperties(next);
+                      return next;
+                    })}
                     title="Toggle auto-update"
                   >
                     {config.autoUpdate ? "ON" : "OFF"}
@@ -1027,7 +1062,14 @@ export function ExportModal({
                   id="export-default-agent"
                   className="export-modal__select"
                   value={config.defaultAgentId}
-                  onChange={(e) => setConfig((c) => ({ ...c, defaultAgentId: e.target.value }))}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setConfig((c) => {
+                      const next = { ...c, defaultAgentId: val };
+                      saveGeneralProperties(next);
+                      return next;
+                    });
+                  }}
                 >
                   <option value="">(none)</option>
                   {orchestratorAgents.map((a) => (
@@ -1043,14 +1085,22 @@ export function ExportModal({
                 <div className="export-modal__ext-switch">
                   <button
                     className={`export-modal__ext-btn${config.fileExtension === "json" ? " export-modal__ext-btn--active" : ""}`}
-                    onClick={() => setConfig((c) => ({ ...c, fileExtension: "json" }))}
+                    onClick={() => setConfig((c) => {
+                      const next = { ...c, fileExtension: "json" as const };
+                      saveGeneralProperties(next);
+                      return next;
+                    })}
                     aria-pressed={config.fileExtension === "json"}
                   >
                     .json
                   </button>
                   <button
                     className={`export-modal__ext-btn${config.fileExtension === "jsonc" ? " export-modal__ext-btn--active" : ""}`}
-                    onClick={() => setConfig((c) => ({ ...c, fileExtension: "jsonc" }))}
+                    onClick={() => setConfig((c) => {
+                      const next = { ...c, fileExtension: "jsonc" as const };
+                      saveGeneralProperties(next);
+                      return next;
+                    })}
                     aria-pressed={config.fileExtension === "jsonc"}
                   >
                     .jsonc
@@ -1059,6 +1109,48 @@ export function ExportModal({
                 <span className="export-modal__ext-hint">
                   Output: <code>{outputFileName}</code>
                 </span>
+              </div>
+
+              <div className="export-modal__field-row">
+                <label className="export-modal__label">
+                  Hide default planner
+                </label>
+                <div className="export-modal__switch-row">
+                  <button
+                    role="switch"
+                    aria-checked={config.hideDefaultPlanner}
+                    className={`export-modal__switch${config.hideDefaultPlanner ? " export-modal__switch--on" : ""}`}
+                    onClick={() => setConfig((c) => {
+                      const next = { ...c, hideDefaultPlanner: !c.hideDefaultPlanner };
+                      saveGeneralProperties(next);
+                      return next;
+                    })}
+                    title="Toggle hide default planner"
+                  >
+                    {config.hideDefaultPlanner ? "ON" : "OFF"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="export-modal__field-row">
+                <label className="export-modal__label">
+                  Hide default builder
+                </label>
+                <div className="export-modal__switch-row">
+                  <button
+                    role="switch"
+                    aria-checked={config.hideDefaultBuilder}
+                    className={`export-modal__switch${config.hideDefaultBuilder ? " export-modal__switch--on" : ""}`}
+                    onClick={() => setConfig((c) => {
+                      const next = { ...c, hideDefaultBuilder: !c.hideDefaultBuilder };
+                      saveGeneralProperties(next);
+                      return next;
+                    })}
+                    title="Toggle hide default builder"
+                  >
+                    {config.hideDefaultBuilder ? "ON" : "OFF"}
+                  </button>
+                </div>
               </div>
             </div>
           )}
