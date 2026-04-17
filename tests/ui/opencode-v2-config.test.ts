@@ -764,7 +764,115 @@ describe("buildOpenCodeV2Config — exported agents always have hidden field", (
   });
 });
 
-// ── buildOpenCodeV2Config — edge cases ────────────────────────────────────
+// ── buildOpenCodeV2Config — hideDefaultPlanner / hideDefaultBuilder ───────
+
+describe("buildOpenCodeV2Config — hideDefaultPlanner injection", () => {
+  const mdExist = () => true;
+
+  it("injects agent.plan = { hidden: true } when hideDefaultPlanner is true", () => {
+    const out = buildOpenCodeV2Config(
+      [makeAgent()],
+      makeConfig({ hideDefaultPlanner: true }),
+      "proj",
+      mdExist,
+    );
+    expect(out.agent["plan"]).toEqual({ hidden: true });
+  });
+
+  it("does not inject agent.plan when hideDefaultPlanner is false", () => {
+    const out = buildOpenCodeV2Config(
+      [makeAgent()],
+      makeConfig({ hideDefaultPlanner: false }),
+      "proj",
+      mdExist,
+    );
+    expect("plan" in out.agent).toBe(false);
+  });
+
+  it("skips injection when a real agent named 'plan' already exists", () => {
+    const planAgent = makeAgent({
+      id: "plan-id",
+      name: "plan",
+      adataProperties: { opencode: { provider: "anthropic", model: "claude-3" } },
+    });
+    const out = buildOpenCodeV2Config(
+      [planAgent],
+      makeConfig({ hideDefaultPlanner: true }),
+      "proj",
+      mdExist,
+    );
+    // The real agent entry should remain (has all OpenCodeV2AgentEntry fields)
+    expect(out.agent["plan"]).toBeDefined();
+    expect("enabled" in out.agent["plan"]!).toBe(true);
+  });
+});
+
+describe("buildOpenCodeV2Config — hideDefaultBuilder injection", () => {
+  const mdExist = () => true;
+
+  it("injects agent.build = { hidden: true } when hideDefaultBuilder is true", () => {
+    const out = buildOpenCodeV2Config(
+      [makeAgent()],
+      makeConfig({ hideDefaultBuilder: true }),
+      "proj",
+      mdExist,
+    );
+    expect(out.agent["build"]).toEqual({ hidden: true });
+  });
+
+  it("does not inject agent.build when hideDefaultBuilder is false", () => {
+    const out = buildOpenCodeV2Config(
+      [makeAgent()],
+      makeConfig({ hideDefaultBuilder: false }),
+      "proj",
+      mdExist,
+    );
+    expect("build" in out.agent).toBe(false);
+  });
+
+  it("skips injection when a real agent named 'build' already exists", () => {
+    const buildAgent = makeAgent({
+      id: "build-id",
+      name: "build",
+      adataProperties: { opencode: { provider: "anthropic", model: "claude-3" } },
+    });
+    const out = buildOpenCodeV2Config(
+      [buildAgent],
+      makeConfig({ hideDefaultBuilder: true }),
+      "proj",
+      mdExist,
+    );
+    // The real agent entry should remain (has all OpenCodeV2AgentEntry fields)
+    expect(out.agent["build"]).toBeDefined();
+    expect("enabled" in out.agent["build"]!).toBe(true);
+  });
+});
+
+describe("buildOpenCodeV2Config — hideDefaultPlanner + hideDefaultBuilder combined", () => {
+  const mdExist = () => true;
+
+  it("injects both plan and build when both flags are true", () => {
+    const out = buildOpenCodeV2Config(
+      [makeAgent()],
+      makeConfig({ hideDefaultPlanner: true, hideDefaultBuilder: true }),
+      "proj",
+      mdExist,
+    );
+    expect(out.agent["plan"]).toEqual({ hidden: true });
+    expect(out.agent["build"]).toEqual({ hidden: true });
+  });
+
+  it("real agents are unaffected when both flags are true", () => {
+    const out = buildOpenCodeV2Config(
+      [makeAgent({ name: "my-agent", adataProperties: { opencode: { provider: "a", model: "b" } } })],
+      makeConfig({ hideDefaultPlanner: true, hideDefaultBuilder: true }),
+      "proj",
+      mdExist,
+    );
+    expect(out.agent["my-agent"]).toBeDefined();
+    expect("enabled" in out.agent["my-agent"]!).toBe(true);
+  });
+});
 
 describe("buildOpenCodeV2Config — edge cases", () => {
   const mdExist = () => true;

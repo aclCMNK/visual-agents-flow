@@ -719,6 +719,40 @@ export function buildOpenCodeV2Config(
     Object.assign(agentObj, entry);
   }
 
+  // ── Inject hidden overrides for built-in OpenCode agents ──────────────────
+  //
+  // If config.hideDefaultPlanner is true → inject { hidden: true } under "plan".
+  // If config.hideDefaultBuilder is true → inject { hidden: true } under "build".
+  //
+  // These are minimal synthetic entries recognised by OpenCode to suppress its
+  // built-in plan/build agents. They are cast to OpenCodeV2AgentEntry to satisfy
+  // the map type — at runtime OpenCode only reads the "hidden" field for these.
+  //
+  // The injection is SKIPPED (with a console warning) when a real agent with that
+  // name was already included from includedAgents — to avoid silently overwriting
+  // a user-defined agent called "plan" or "build".
+  //
+  // See: OpenCodeExportConfig.hideDefaultPlanner / hideDefaultBuilder
+  if (config.hideDefaultPlanner) {
+    if ("plan" in agentObj) {
+      console.warn(
+        "Export: omitida inyección de campo hidden para plan/build; ya existe un agente real con ese nombre",
+      );
+    } else {
+      agentObj["plan"] = { hidden: true } as unknown as OpenCodeV2AgentEntry;
+    }
+  }
+
+  if (config.hideDefaultBuilder) {
+    if ("build" in agentObj) {
+      console.warn(
+        "Export: omitida inyección de campo hidden para plan/build; ya existe un agente real con ese nombre",
+      );
+    } else {
+      agentObj["build"] = { hidden: true } as unknown as OpenCodeV2AgentEntry;
+    }
+  }
+
   return {
     $schema:       config.schemaUrl.trim() || OPENCODE_SCHEMA_URL_DEFAULT,
     default_agent,
