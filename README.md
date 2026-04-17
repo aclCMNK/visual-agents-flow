@@ -1,3 +1,5 @@
+![AgentsFlow Logo](./public/banner.png)
+
 # AgentsFlow
 > Design. Organize. Flow.  
 > The easiest way to build agentic workflows for OpenCode — visually and intuitively.
