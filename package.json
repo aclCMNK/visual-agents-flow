@@ -1,65 +1,68 @@
 {
-  "name": "agentsflow",
-  "version": "0.1.0",
-  "description": "Visual Agent Flow editor for DrassMemorIA",
-  "type": "module",
-  "private": true,
-  "main": "dist/electron/main.js",
-  "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "electron:dev": "NODE_ENV=development ELECTRON_DEV=1 vite",
-    "electron:build": "vite build && electron-builder",
-    "typecheck": "tsc --noEmit",
-    "test": "bun test",
-    "lint": "biome check src/",
-    "setup:monaco": "mkdir -p public/vs && cp -r node_modules/monaco-editor/min/vs/. public/vs/"
-  },
-  "build": {
-    "appId": "com.drassmemoria.agentsflow",
-    "productName": "AgentsFlow",
-    "directories": {
-      "output": "dist/release"
-    },
-    "files": [
-      "dist/electron/**",
-      "dist/ui/**",
-      "package.json"
-    ],
-    "mac": {
-      "category": "public.app-category.developer-tools"
-    },
-    "win": {
-      "target": "nsis"
-    },
-    "linux": {
-      "target": "AppImage"
-    }
-  },
-  "devDependencies": {
-    "@types/bun": "latest",
-    "@types/electron": "^1.6.12",
-    "@types/node": "^25.5.2",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.1",
-    "electron": "^41.1.1",
-    "electron-builder": "^26.8.1",
-    "vite": "^8.0.5",
-    "vite-plugin-electron": "^0.29.1",
-    "vite-plugin-electron-renderer": "^0.14.6"
-  },
-  "peerDependencies": {
-    "typescript": "^5"
-  },
-  "dependencies": {
-    "@monaco-editor/react": "^4.7.0",
-    "@types/marked": "^6.0.0",
-    "marked": "^18.0.0",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
-    "zod": "^4.3.6",
-    "zustand": "^5.0.12"
-  }
+	"name": "agentsflow",
+	"version": "0.1.0",
+	"description": "Visual Agent Flow editor for DrassMemorIA",
+	"type": "module",
+	"private": true,
+	"main": "dist/electron/main.js",
+	"scripts": {
+		"dev": "vite",
+		"build": "vite build",
+		"preview": "vite preview",
+		"electron:dev": "NODE_ENV=development ELECTRON_DEV=1 vite",
+		"electron:build": "vite build && electron-builder",
+		"typecheck": "tsc --noEmit",
+		"test": "bun test",
+		"lint": "biome check src/",
+		"setup:monaco": "mkdir -p public/vs && cp -r node_modules/monaco-editor/min/vs/. public/vs/",
+		"build:win": "electron-builder --win",
+		"build:linux": "electron-builder --linux",
+		"build:mac": "electron-builder --mac"
+	},
+	"build": {
+		"appId": "com.drassmemoria.agentsflow",
+		"productName": "AgentsFlow",
+		"directories": {
+			"output": "dist/release"
+		},
+		"files": [
+			"dist/electron/**",
+			"dist/ui/**",
+			"package.json"
+		],
+		"mac": {
+			"category": "public.app-category.developer-tools"
+		},
+		"win": {
+			"target": "nsis"
+		},
+		"linux": {
+			"target": "AppImage"
+		}
+	},
+	"devDependencies": {
+		"@types/bun": "latest",
+		"@types/electron": "^1.6.12",
+		"@types/node": "^25.5.2",
+		"@types/react": "^19.2.14",
+		"@types/react-dom": "^19.2.3",
+		"@vitejs/plugin-react": "^6.0.1",
+		"electron": "^41.1.1",
+		"electron-builder": "^26.8.1",
+		"vite": "^8.0.5",
+		"vite-plugin-electron": "^0.29.1",
+		"vite-plugin-electron-renderer": "^0.14.6"
+	},
+	"peerDependencies": {
+		"typescript": "^5"
+	},
+	"dependencies": {
+		"@monaco-editor/react": "^4.7.0",
+		"@types/marked": "^6.0.0",
+		"marked": "^18.0.0",
+		"react": "^19.2.4",
+		"react-dom": "^19.2.4",
+		"zod": "^4.3.6",
+		"zustand": "^5.0.12"
+	}
 }
