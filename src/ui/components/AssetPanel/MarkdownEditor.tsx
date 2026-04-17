@@ -14,7 +14,9 @@
  */
 
 import { useEffect, useCallback, useRef } from "react";
-import MonacoEditor from "@monaco-editor/react";
+// HOTFIX: MonacoEditor temporalmente deshabilitado por bloqueo en build/Electron.
+// Revertir cuando Monaco esté resuelto: descomentar el import y restaurar el bloque <MonacoEditor />.
+// import MonacoEditor from "@monaco-editor/react";
 import { marked } from "marked";
 import { useAssetStore } from "../../store/assetStore.ts";
 import type { AssetEditorTab } from "../../store/assetStore.ts";
@@ -175,9 +177,62 @@ export function MarkdownEditor() {
             </div>
           </div>
 
-          {/* Panel: Monaco Editor */}
+          {/* Panel: Editor ─────────────────────────────────────────────────
+           * HOTFIX (workaround temporal) — Monaco deshabilitado por bloqueo
+           * con build/Electron. Se reemplaza con un <textarea> simple que
+           * mantiene el mismo value/onChange para revertir fácilmente.
+           *
+           * PARA REVERTIR:
+           *   1. Descomentar el import de MonacoEditor arriba.
+           *   2. Eliminar el bloque <textarea> de abajo.
+           *   3. Descomentar el bloque <MonacoEditor /> de abajo.
+           * ─────────────────────────────────────────────────────────────── */}
           {activeTab.panel === "editor" && (
             <div className="md-editor__monaco-wrap">
+              {/* ── FALLBACK textarea (Monaco deshabilitado) ─────────────── */}
+              {/*
+               * COLOR ELEGIDO: background usa `--color-bg` (#0f1117) porque es el
+               * tono más oscuro del design system y el más cercano al fondo de
+               * Monaco vs-dark (#1e1e1e). El tabbar del editor ya usa este mismo
+               * fondo, por lo que visualmente el textarea queda integrado.
+               * Si en el futuro se prefiere un tono más elevado (tier surface),
+               * cambiar a `--color-surface-2` (#232637) — que es lo que usa el
+               * panel de preview de markdown.
+               *
+               * PARA REVERTIR A MONACO: eliminar este bloque y descomentar
+               * el bloque <MonacoEditor /> de abajo.
+               */}
+              <textarea
+                key={activeTab.filePath}
+                value={activeTab.content}
+                onChange={(e) => updateTabContent(activeTab.filePath, e.target.value)}
+                placeholder="(Modo simple: editor markdown temporal, Monaco deshabilitado)"
+                style={{
+                  // Dimensiones — igual que Monaco: ocupa todo el wrap
+                  width: "100%",
+                  height: "100%",
+                  resize: "none",
+                  boxSizing: "border-box",
+
+                  // Fondo — #0f1117 (--color-bg): el tono más oscuro del sistema,
+                  // equivalente visual a Monaco vs-dark. Sin borde propio para no
+                  // romper el encuadre del .md-editor__monaco-wrap.
+                  background: "var(--color-bg)",
+                  border: "none",
+                  outline: "none",
+
+                  // Tipografía — replica la config de Monaco
+                  color: "var(--color-text)",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: "13px",
+                  lineHeight: "1.6",
+
+                  // Espaciado — idéntico al padding de Monaco { top: 12, bottom: 12 }
+                  padding: "12px 16px",
+                }}
+              />
+
+              {/* ── Monaco (comentado por hotfix) ─────────────────────────
               <MonacoEditor
                 key={activeTab.filePath}
                 language="markdown"
@@ -201,6 +256,7 @@ export function MarkdownEditor() {
                   smoothScrolling: true,
                 }}
               />
+              ── fin Monaco comentado ───────────────────────────────────── */}
             </div>
           )}
 
