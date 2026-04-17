@@ -129,7 +129,7 @@ console.log('icon full path:', path.join(__dirname, '../assets/blueico.png'));
     win.webContents.openDevTools({ mode: "detach" });
   } else {
     // Production: load from the built dist/ui/index.html
-    win.loadFile(join(__dirname, "../../dist/ui/index.html"));
+    win.loadFile(join(__dirname, "../ui/index.html"));
   }
 
   // ── Diagnostic: scan window.folderExplorer after renderer loads ───────────
