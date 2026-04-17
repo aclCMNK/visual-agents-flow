@@ -61,20 +61,35 @@ export function AgentEditModal() {
 
   const nameInputRef = useRef<HTMLInputElement>(null);
 
-  // Reset draft whenever the modal opens for a (possibly different) agent
+  // Reset draft whenever the modal opens for a (possibly different) agent.
+  // hidden is loaded from .adata (single source of truth); fall back to
+  // agent.hidden from the store if the IPC call fails or project is unavailable.
   useEffect(() => {
-    if (agent) {
-      setDraftName(agent.name);
-      setDraftDescription(agent.description);
-      setDraftType(agent.type);
-      setDraftIsOrchestrator(agent.isOrchestrator);
-      setDraftHidden(agent.hidden ?? false);
-      setSaveError(null);
-      // Auto-focus the name field after the DOM settles
-      requestAnimationFrame(() => {
-        nameInputRef.current?.focus();
-        nameInputRef.current?.select();
-      });
+    if (!agent) return;
+    setDraftName(agent.name);
+    setDraftDescription(agent.description);
+    setDraftType(agent.type);
+    setDraftIsOrchestrator(agent.isOrchestrator);
+    // Seed with store value immediately so the toggle is never blank
+    setDraftHidden(agent.hidden ?? false);
+    setSaveError(null);
+    requestAnimationFrame(() => {
+      nameInputRef.current?.focus();
+      nameInputRef.current?.select();
+    });
+
+    // Override with .adata value (authoritative source for hidden)
+    if (project) {
+      window.agentsFlow
+        .adataGetOpenCodeConfig({ projectDir: project.projectDir, agentId: agent.id })
+        .then((result) => {
+          if (result.success && result.config && typeof result.config.hidden === "boolean") {
+            setDraftHidden(result.config.hidden);
+          }
+        })
+        .catch(() => {
+          // Silently ignore — store value already seeded above
+        });
     }
   }, [agent?.id]); // intentionally keyed on id so it resets when agent changes
 
@@ -121,14 +136,41 @@ export function AgentEditModal() {
         }
       }
 
+      const nextHidden = draftType === "Sub-Agent" ? draftHidden : false;
+
       // Commit the new slug to the store
       updateAgent(agent!.id, {
         name: derivedSlug,
         description: draftDescription,
         type: draftType,
         isOrchestrator: draftType === "Agent" ? draftIsOrchestrator : false,
-        hidden: draftType === "Sub-Agent" ? draftHidden : false,
+        hidden: nextHidden,
       });
+
+      // Persist hidden to .adata (single source of truth) so PropertiesPanel
+      // stays in sync without needing a full reload.
+      if (project) {
+        window.agentsFlow
+          .adataGetOpenCodeConfig({ projectDir: project.projectDir, agentId: agent!.id })
+          .then((result) => {
+            const cfg = result.success && result.config ? result.config : null;
+            return window.agentsFlow.adataSetOpenCodeConfig({
+              projectDir: project.projectDir,
+              agentId: agent!.id,
+              config: {
+                provider: cfg?.provider ?? "",
+                model: cfg?.model ?? "",
+                temperature: cfg?.temperature ?? 0.7,
+                hidden: nextHidden,
+                steps: cfg?.steps ?? null,
+                color: cfg?.color ?? "#ffffff",
+              },
+            });
+          })
+          .catch(() => {
+            // Non-blocking — store already updated above
+          });
+      }
 
       closeEditModal();
     } catch (err) {
