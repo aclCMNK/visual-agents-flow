@@ -52,7 +52,7 @@
  */
 
 import { app, BrowserWindow, Menu, session } from "electron";
-import { join } from "node:path";
+import path,{ join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import { registerIpcHandlers } from "./ipc-handlers.ts";
@@ -87,14 +87,19 @@ function createWindow(): BrowserWindow {
   } else {
     console.log("[main] preload found ✓");
   }
-
+console.log('__dirname:', __dirname);
+console.log('icon full path:', path.join(__dirname, '../assets/blueico.png'));
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 800,
     minHeight: 600,
-	icon: join(__dirname, "/assets/blueico.ico"),
-    title: "AgentsFlow",
+	icon: process.platform === 'win32'
+    ? path.join(__dirname, '../assets/blueico.ico')
+    : process.platform === 'darwin'
+      ? path.join(__dirname, '../assets/blueico_16.icns')
+      : path.join(__dirname, '../assets/blueico_16.png'),
+    title: "AgentsFlow - Visual AI Agentic workflow",
     show: false, // Show after ready-to-show to avoid flash of unstyled content
     autoHideMenuBar: true,  // Hide the native menu bar (no standard Electron menu)
     webPreferences: {
