@@ -1948,7 +1948,7 @@ button:disabled {
 	cursor: default;
 }
 
-/* "Sync Tasks" button in sidebar header */
+/* "Sync Delegations" button in sidebar header */
 .editor-view__sync-tasks-btn {
 	display: inline-flex;
 	align-items: center;
@@ -1973,7 +1973,7 @@ button:disabled {
 	cursor: not-allowed;
 }
 
-/* Sync Tasks inline toast */
+/* Sync Delegations inline toast */
 .editor-view__sync-tasks-toast {
 	font-size: 0.78rem;
 	padding: 6px 10px;
@@ -4251,8 +4251,104 @@ button:disabled {
 /* Floating panels are ALWAYS interactive regardless of canvas mode.
    pointer-events: all ensures they are never silenced by an ancestor rule. */
 .canvas-tool-panel,
-.canvas-zoom-panel {
+.canvas-zoom-panel,
+.canvas-save-overlay {
 	pointer-events: all;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/* Canvas Save Overlay — floating top-right (outside viewport transform)       */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Anchored to the top-right corner of .flow-canvas (position: relative).
+ * z-index 300 — above tool panel (200) and zoom panel (200), below modals.
+ * Only rendered when isDirty === true; entrance animation on appearance.
+ */
+
+.canvas-save-overlay {
+	position: absolute;
+	top: 14px;
+	right: 14px;
+	z-index: 300;
+	display: flex;
+	align-items: center;
+	gap: 0;
+	pointer-events: all;
+	/* Entrance animation — scale-in + fade-in, 200 ms ease-out */
+	animation: canvas-save-overlay-enter 200ms ease-out both;
+}
+
+@keyframes canvas-save-overlay-enter {
+	from {
+		opacity: 0;
+		transform: scale(0.8) translateY(-6px);
+	}
+	to {
+		opacity: 1;
+		transform: scale(1) translateY(0);
+	}
+}
+
+/* Suppress animation for users who prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+	.canvas-save-overlay {
+		animation: none;
+	}
+}
+
+/* Badge — small numeric overlay on the button (feature-flag, optional) */
+.canvas-save-overlay__badge {
+	position: absolute;
+	top: -6px;
+	right: -6px;
+	z-index: 1;
+	min-width: 18px;
+	height: 18px;
+	padding: 0 4px;
+	border-radius: 9px;
+	background: var(--color-error, #f87171);
+	color: #fff;
+	font-size: 0.7rem;
+	font-weight: 700;
+	line-height: 18px;
+	text-align: center;
+	pointer-events: none;
+}
+
+/* Canvas-size modifier: noticeably larger / protagonist vs all other UI elements */
+.agent-graph-save-btn--canvas {
+	padding: 14px 36px;
+	font-size: 1.25rem;
+	min-height: 54px;
+	min-width: 260px;
+	font-weight: 700;
+	letter-spacing: 0.015em;
+	box-shadow: 0 6px 24px rgba(99, 102, 241, 0.45);
+}
+
+/* Stronger focus ring for keyboard users on the canvas button */
+.agent-graph-save-btn--canvas:focus-visible {
+	outline: 3px solid var(--color-primary);
+	outline-offset: 3px;
+}
+
+/* Responsive: on narrow viewports move to bottom-right to avoid sidebar overlap */
+@media (max-width: 640px) {
+	.canvas-save-overlay {
+		top: auto;
+		bottom: 80px; /* above zoom panel */
+		right: 8px;
+		left: 8px;
+		right: 8px;
+	}
+
+	.agent-graph-save-btn--canvas {
+		width: 100%;
+		min-width: unset;
+		padding: 14px 20px;
+		font-size: 1.1rem;
+	}
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
@@ -4867,6 +4963,129 @@ button:disabled {
 		opacity: 1;
 		transform: translateY(0);
 	}
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/* Sync Error Modal                                                              */
+/* Shown after save when permissions.task sync has partial failures.             */
+/* z-index: 10003 — above project-load-overlay (10000) and modal-backdrop        */
+/* (10002) so it appears on top of everything when triggered post-save.          */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+.agent-graph-sync-error-modal-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: 10003;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: rgba(0, 0, 0, 0.65);
+	backdrop-filter: blur(2px);
+	animation: fadeIn 120ms ease;
+}
+
+.agent-graph-sync-error-modal {
+	background: var(--color-surface);
+	border: 1px solid var(--color-error);
+	border-radius: var(--radius-lg);
+	width: 100%;
+	max-width: 480px;
+	padding: 24px;
+	box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+	animation: slideUp 150ms ease;
+}
+
+.agent-graph-sync-error-modal__title {
+	font-size: 1rem;
+	font-weight: 600;
+	color: var(--color-error);
+	margin-bottom: 12px;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.agent-graph-sync-error-modal__desc {
+	font-size: 0.875rem;
+	color: var(--color-text-muted);
+	margin-bottom: 14px;
+	line-height: 1.5;
+}
+
+.agent-graph-sync-error-modal__errors {
+	list-style: none;
+	background: var(--color-surface-2);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-sm);
+	padding: 10px 14px;
+	margin-bottom: 18px;
+	max-height: 180px;
+	overflow-y: auto;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.agent-graph-sync-error-modal__error-item {
+	font-size: 0.8125rem;
+	color: var(--color-error);
+}
+
+.agent-graph-sync-error-modal__error-item code {
+	font-family: var(--font-mono);
+	word-break: break-all;
+}
+
+.agent-graph-sync-error-modal__actions {
+	display: flex;
+	gap: 10px;
+	justify-content: flex-end;
+}
+
+.agent-graph-sync-error-modal__retry {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 7px 16px;
+	border-radius: var(--radius-sm);
+	border: 1px solid var(--color-primary);
+	background: var(--color-primary);
+	color: #fff;
+	font-size: 0.875rem;
+	font-weight: 500;
+	cursor: pointer;
+	transition: background var(--transition), opacity var(--transition);
+}
+
+.agent-graph-sync-error-modal__retry:hover:not(:disabled) {
+	background: var(--color-primary-hover);
+	border-color: var(--color-primary-hover);
+}
+
+.agent-graph-sync-error-modal__retry:disabled {
+	opacity: 0.6;
+	cursor: not-allowed;
+}
+
+.agent-graph-sync-error-modal__dismiss {
+	padding: 7px 16px;
+	border-radius: var(--radius-sm);
+	border: 1px solid var(--color-border);
+	background: transparent;
+	color: var(--color-text-muted);
+	font-size: 0.875rem;
+	cursor: pointer;
+	transition: color var(--transition), border-color var(--transition);
+}
+
+.agent-graph-sync-error-modal__dismiss:hover:not(:disabled) {
+	color: var(--color-text);
+	border-color: var(--color-text-muted);
+}
+
+.agent-graph-sync-error-modal__dismiss:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */

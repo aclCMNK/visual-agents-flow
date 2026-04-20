@@ -532,6 +532,12 @@ export interface SaveAgentGraphRequest {
 export interface SaveAgentGraphResult {
   success: boolean;
   error?: string;
+  /**
+   * Result of the automatic `permissions.task` sync run after every save.
+   * Present when `success === true` and the sync was attempted.
+   * Absent when the graph save itself failed (no sync is attempted then).
+   */
+  syncResult?: SyncTasksResult;
 }
 
 export interface ExportProjectResult {
@@ -1442,7 +1448,16 @@ export interface SyncTasksEntry {
 
 export interface SyncTasksRequest {
   projectDir: string;
-  /** One entry per delegator agent. Agents with no outgoing links MUST NOT appear. */
+  /**
+   * One entry per real canvas agent (user-node excluded).
+   *
+   * Agents with no outgoing Delegation links MUST still be included with
+   * `taskAgentNames: []` so that the handler can clear any stale
+   * `permissions.task` values that were written by a previous save.
+   *
+   * Use `buildSyncTaskEntries()` from `src/shared/syncTaskEntries.ts` to
+   * construct this array — it handles all edge-cases automatically.
+   */
   entries: SyncTasksEntry[];
 }
 

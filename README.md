@@ -17,6 +17,7 @@ It’s focused on letting you create, visualize, and edit flows where different 
 - Organize, connect, and configure agents and tools visually
 - Modern, intuitive interface — for techies and non-techies alike
 - Save, export, and version your flows
+- **Auto-sync `permissions.task`:** Every time you save the graph, each agent's `.adata` file is automatically updated with the list of agents it delegates to — no manual action required. A manual "Sync Delegations" button is also available for on-demand syncing.
 - Open Source: your logic, your rules
 ---
 🏁 Download & Install
@@ -94,6 +95,7 @@ Te permite crear, visualizar y editar flujos donde conectas distintos agentes, h
 - Organiza, conecta y configura agentes y herramientas de manera gráfica
 - Interfaz moderna e intuitiva, para cualquier nivel técnico
 - Guarda, exporta y versiona tus flujos de trabajo
+- **Sincronización automática de `permissions.task`:** Cada vez que guardas el grafo, el campo `permissions.task` en el `.adata` de cada agente se actualiza automáticamente con los agentes que ese agente delega — sin acción manual. También hay un botón "Sincronizar delegaciones" para sincronizar bajo demanda.
 - Código Abierto: tu lógica, tus reglas
 ---
 🏁 Descarga e instalación

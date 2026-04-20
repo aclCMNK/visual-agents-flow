@@ -29,6 +29,7 @@ import type { LoadResult, ProjectModel, AgentModel } from "../loader/types.ts";
 import { IPC_CHANNELS } from "./bridge.types.ts";
 import { buildAdataFromExisting } from "./adata-builder.ts";
 import { backupExportFileIfExists } from "./export-file-backup.ts";
+import { buildSyncTaskEntries } from "../shared/syncTaskEntries.ts";
 import type {
   BridgeLoadResult,
   SerializableProjectModel,
@@ -794,8 +795,34 @@ export function registerIpcHandlers(): void {
           // metadata dir may not exist yet — nothing to clean up
         }
 
-        console.log("[ipc] SAVE_AGENT_GRAPH: complete");
-        return { success: true };
+        // ── 7. Auto-sync permissions.task for every agent ────────────────
+        // Must run AFTER .adata files are written/deleted (step 5+6) so that
+        // handleSyncTasks reads up-to-date files and writes are not lost.
+        const syncEntries = buildSyncTaskEntries(
+          req.agents.map((n) => ({ id: n.id, name: n.name })),
+          req.edges.map((e) => ({
+            fromAgentId: e.fromAgentId,
+            toAgentId: e.toAgentId,
+            relationType: e.relationType,
+          })),
+        );
+        const syncResult = await handleSyncTasks({
+          projectDir: req.projectDir,
+          entries: syncEntries,
+        });
+        if (syncResult.errors.length > 0) {
+          console.warn(
+            "[ipc] SAVE_AGENT_GRAPH: sync-tasks partial errors —",
+            syncResult.errors,
+          );
+        }
+        console.log(
+          "[ipc] SAVE_AGENT_GRAPH: complete — sync updated=",
+          syncResult.updated,
+          "errors=",
+          syncResult.errors.length,
+        );
+        return { success: true, syncResult };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.error("[ipc] SAVE_AGENT_GRAPH: unexpected error —", message);
@@ -1383,6 +1410,18 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.ADATA_SET_PERMISSIONS,
     async (_event, req: AdataSetPermissionsRequest) => {
+      // ── Universal delegation guard (permissions.task) ──────────────────
+      // Guarantees that every permissions payload written to .adata always
+      // contains a `task` key as an object (empty if no sub-agents are
+      // currently delegated). This is a universal defense to ensure correct
+      // runtime behaviour and exportability to OpenCode.
+      // Delegations that already carry `permissions.task` as an object are
+      // left untouched — no mutation occurs on valid payloads.
+      const permsRaw = req.permissions as Record<string, unknown>;
+      if (typeof permsRaw.task !== "object" || permsRaw.task === null) {
+        permsRaw.task = {};
+      }
+      // ──────────────────────────────────────────────────────────────────
       console.log("[ipc] ADATA_SET_PERMISSIONS: agentId →", req.agentId, "tools →", req.permissions.length);
       const result = await handleSetPermissions(req);
       if (!result.success) {

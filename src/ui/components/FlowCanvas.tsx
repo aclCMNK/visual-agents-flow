@@ -42,6 +42,7 @@ import { useRef, useState, useEffect, useCallback, useLayoutEffect, useReducer }
 import { type AgentType, useAgentFlowStore, USER_NODE_ID } from "../store/agentFlowStore.ts";
 import { useProjectStore } from "../store/projectStore.ts";
 import { useEditorConfig } from "../hooks/useEditorConfig.ts";
+import { AgentCanvasSaveButton } from "./AgentCanvasSaveButton.tsx";
 
 // ── User Node dimensions ───────────────────────────────────────────────────
 // The User node is a circle; we use diameter for both width and height.
@@ -1173,7 +1174,8 @@ export function FlowCanvas() {
     const target = e.target as Element;
     if (
       target.closest(".canvas-tool-panel") ||
-      target.closest(".canvas-zoom-panel")
+      target.closest(".canvas-zoom-panel") ||
+      target.closest(".canvas-save-overlay")
     ) {
       return;
     }
@@ -1307,7 +1309,8 @@ export function FlowCanvas() {
     const target = e.target as Element;
     if (
       target.closest(".canvas-tool-panel") ||
-      target.closest(".canvas-zoom-panel")
+      target.closest(".canvas-zoom-panel") ||
+      target.closest(".canvas-save-overlay")
     ) {
       return;
     }
@@ -1781,6 +1784,9 @@ export function FlowCanvas() {
         onCenterView={handleCenterView}
         onResetZoom={handleResetZoom}
       />
+
+      {/* ── Canvas Save overlay (top-right, z-index 300) ─────────────────── */}
+      <AgentCanvasSaveButton />
 
       {/* Empty state hint (when no nodes and not placing) */}
       {agents.length === 0 && !userNode && !isPlacing && (

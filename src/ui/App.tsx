@@ -305,10 +305,10 @@ function EditorView() {
                     onClick={() => { handleSyncTasks(); setMenuOpen(false); }}
                     disabled={isSyncingTasks || !project?.projectDir}
                     role="menuitem"
-                    aria-label="Sync Tasks"
+                    aria-label="Sync Delegations"
                   >
                     <span aria-hidden="true">{isSyncingTasks ? "⏳" : "⚡"}</span>
-                    {isSyncingTasks ? "Syncing…" : "Sync task"}
+                    {isSyncingTasks ? "Syncing…" : "Sync delegations"}
                   </button>
                 </div>
               )}
