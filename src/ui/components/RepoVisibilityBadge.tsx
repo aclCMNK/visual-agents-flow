@@ -21,34 +21,34 @@ interface VisibilityConfig {
 const VISIBILITY_CONFIG: Partial<Record<VisibilityStatus, VisibilityConfig>> = {
 	checking: {
 		color: "#9ca3af", // neutral gray
-		message: "Verificando repositorio…",
+		message: "Checking repository…",
 		isSpinner: true,
 	},
 	public: {
 		color: "#22c55e", // green-500
-		message: "✓ Repositorio público detectado",
+		message: "✓ Public repository detected",
 	},
 	private: {
 		color: "#ef4444", // red-500
-		message: "✗ Repositorio privado, debes ingresar credenciales",
+		message: "✗ Private repository — credentials required",
 	},
 	not_found: {
 		color: "#ef4444", // red-500 — treated same as private
-		message: "✗ Repositorio privado, debes ingresar credenciales",
+		message: "✗ Private repository — credentials required",
 	},
 	ssh_url: {
 		color: "#f59e0b", // amber-500
-		message: "⚠ URL SSH detectada, no se puede verificar visibilidad",
+		message: "⚠ SSH URL detected — visibility cannot be verified",
 	},
 	unknown_provider: {
 		color: "#f59e0b", // amber-500
 		message:
-			"⚠ Solo se puede verificar visibilidad en repositorios de GitHub. GitLab y Bitbucket no están soportados por el proxy IPC.",
+			"⚠ Visibility check is only supported for GitHub repositories. GitLab and Bitbucket are not supported by the IPC proxy.",
 	},
 	network_error: {
 		color: "#f97316", // orange-500
 		message:
-			"⚠ No se pudo verificar (error de red, timeout o proxy IPC no disponible)",
+			"⚠ Could not verify visibility (network error, timeout, or IPC proxy unavailable)",
 	},
 };
 
