@@ -20,7 +20,10 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { validateGitUrl, isValidGitUrl } from "../utils/gitUrlUtils.ts";
-import type { CloneRepositoryResult } from "../../electron/bridge.types.ts";
+import type {
+	CloneRepositoryResult,
+	CloneProgressEvent,
+} from "../../electron/bridge.types.ts";
 import {
 	detectRepoVisibility,
 	parseRepoUrl,
@@ -33,6 +36,10 @@ import {
 	getClonePermission,
 	getCloneUIState,
 } from "../utils/clonePermission.ts";
+import {
+	CredentialsBlock,
+	type Credentials,
+} from "./CredentialsBlock.tsx";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -77,12 +84,63 @@ function getBridge() {
 						url: string;
 						destDir: string;
 						repoName?: string;
+						cloneId: string;
+						/** Ephemeral auth for private repos — receiver must NOT persist */
+						auth?: { username: string; token: string };
 					}) => Promise<CloneRepositoryResult>;
+					cancelClone?: (req: { cloneId: string }) => Promise<{ sent: boolean; message: string }>;
+					validateCloneToken?: (req: { token: string; username?: string }) => Promise<{ valid: boolean; status?: number; message: string; errorCode?: string }>;
+					onCloneProgress?: (callback: (event: CloneProgressEvent) => void) => void;
+					offCloneProgress?: () => void;
 				};
 			}
 		).agentsFlow;
 	} catch {
 		return undefined;
+	}
+}
+
+/**
+ * Maps a CloneRepositoryResult errorCode to a user-friendly message.
+ */
+function getUxErrorMessage(
+	errorCode: CloneRepositoryResult["errorCode"] | undefined,
+	fallback: string | undefined,
+): string {
+	switch (errorCode) {
+		case "AUTH_ERROR":
+			return "Authentication failed. Check your username and token, and make sure the token has the 'repo' scope.";
+		case "DEST_EXISTS":
+			return "A folder with that name already exists in the selected directory. Choose a different destination or rename the existing folder.";
+		case "NETWORK_ERROR":
+			return "Could not reach the repository. Check your internet connection and verify the URL.";
+		case "GIT_NOT_FOUND":
+			return "Git is not installed or not found on PATH. Install Git and try again.";
+		case "INVALID_URL":
+			return "The repository URL is invalid. Make sure it starts with https:// or git@.";
+		case "CANCELLED":
+			return "Clone was cancelled.";
+		case "CONCURRENT_LIMIT":
+			return "Too many clones running at once. Wait for one to finish and try again.";
+		case "IO_ERROR":
+			return "A filesystem error occurred. Check that you have write permissions for the selected folder.";
+		case "UNKNOWN":
+		default:
+			return fallback ?? "An unexpected error occurred during cloning.";
+	}
+}
+
+/**
+ * Returns a human-readable label for a CloneProgressStage.
+ */
+function stageLabel(stage: CloneProgressEvent["stage"]): string {
+	switch (stage) {
+		case "COUNTING_OBJECTS":   return "Counting objects";
+		case "COMPRESSING":        return "Compressing objects";
+		case "RECEIVING_OBJECTS":  return "Receiving objects";
+		case "RESOLVING_DELTAS":   return "Resolving deltas";
+		case "CHECKING_OUT":       return "Checking out files";
+		default:                   return "Cloning";
 	}
 }
 
@@ -133,15 +191,32 @@ export function CloneFromGitModal({
 
 	/**
 	 * Monotonically-increasing counter used to detect stale async responses.
-	 * Each time a new visibility check is started, the counter is incremented.
-	 * When the async result arrives, it is discarded if the counter has moved on.
 	 */
 	const visibilityRequestIdRef = useRef(0);
+
+	// ── Credentials state (ephemeral — never persisted) ───────────────────
+	// SECURITY: Do NOT log credentials
+	const [credentials, setCredentials] = useState<Credentials>({
+		username: "",
+		token: "",
+	});
+	const [credentialsTouched, setCredentialsTouched] = useState(false);
+	const [validateStatus, setValidateStatus] = useState<"idle" | "validating" | "ok" | "error">("idle");
+	const [validateMessage, setValidateMessage] = useState<string | null>(null);
 
 	// ── Clone operation state ──────────────────────────────────────────────
 	const [phase, setPhase] = useState<ClonePhase>("idle");
 	const [cloneError, setCloneError] = useState<string | null>(null);
 	const [clonedPath, setClonedPath] = useState<string | null>(null);
+	const [technicalDetails, setTechnicalDetails] = useState<string | null>(null);
+	const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
+
+	// ── Progress state ─────────────────────────────────────────────────────
+	const [progressStage, setProgressStage] = useState<CloneProgressEvent["stage"] | null>(null);
+	const [progressPercent, setProgressPercent] = useState<number | undefined>(undefined);
+
+	// ── Clone ID (UUID per operation) ──────────────────────────────────────
+	const cloneIdRef = useRef<string>("");
 
 	// ── Derived ────────────────────────────────────────────────────────────
 	const repoName = deriveRepoName(repoUrl);
@@ -149,31 +224,47 @@ export function CloneFromGitModal({
 	/** True while the visibility check is in progress — blocks UI to prevent race conditions */
 	const isCheckingVisibility = visibility === "checking";
 
+	/**
+	 * Show credentials block only for private GitHub repos.
+	 */
+	const credentialsVisible = provider === "github" && visibility === "private";
+
 	// ── Permission / UI state ──────────────────────────────────────────────
 	const clonePermission = getClonePermission(provider, repoVisibility);
 	const { buttonDisabled, errorMessage } = getCloneUIState(clonePermission);
 
-	/**
-	 * Clone button is enabled when:
-	 *   - URL is syntactically valid
-	 *   - A destination directory is selected
-	 *   - No clone operation is already in progress
-	 *   - Visibility check is not running (prevents race conditions)
-	 *   - Visibility has been checked (not idle with a valid URL) — prevents
-	 *     bypass via submit without triggering onBlur first
-	 *   - Permission logic does not block the action
-	 */
 	const visibilityPending = urlValidation.valid && visibility === "idle";
+	const credentialsOk =
+		!credentialsVisible ||
+		(credentials.username.trim() !== "" && credentials.token.trim() !== "");
 	const canClone =
 		urlValidation.valid &&
 		selectedDir !== null &&
 		!isCloning &&
 		!isCheckingVisibility &&
 		!visibilityPending &&
-		!buttonDisabled;
+		!buttonDisabled &&
+		credentialsOk;
 
 	// ── Refs ───────────────────────────────────────────────────────────────
 	const urlInputRef = useRef<HTMLInputElement>(null);
+
+	// ── Subscribe / unsubscribe to progress events ─────────────────────────
+	useEffect(() => {
+		const bridge = getBridge();
+		if (!bridge?.onCloneProgress) return;
+
+		bridge.onCloneProgress((event: CloneProgressEvent) => {
+			// Only handle events for the current clone operation
+			if (event.cloneId !== cloneIdRef.current) return;
+			setProgressStage(event.stage);
+			setProgressPercent(event.percent);
+		});
+
+		return () => {
+			bridge.offCloneProgress?.();
+		};
+	}, []);
 
 	// ── Reset form when modal opens ────────────────────────────────────────
 	useEffect(() => {
@@ -189,26 +280,100 @@ export function CloneFromGitModal({
 			setPhase("idle");
 			setCloneError(null);
 			setClonedPath(null);
+			setTechnicalDetails(null);
+			setShowTechnicalDetails(false);
+			setProgressStage(null);
+			setProgressPercent(undefined);
+			// SECURITY: Do NOT log credentials — clear on open
+			setCredentials({ username: "", token: "" });
+			setCredentialsTouched(false);
+			setValidateStatus("idle");
+			setValidateMessage(null);
+			cloneIdRef.current = "";
 			setTimeout(() => urlInputRef.current?.focus(), 50);
 		}
 	}, [isOpen]);
+
+	// ── Credentials handlers ───────────────────────────────────────────────
+
+	// SECURITY: Do NOT log credentials
+	const clearCredentials = useCallback(() => {
+		setCredentials({ username: "", token: "" });
+		setCredentialsTouched(false);
+		setValidateStatus("idle");
+		setValidateMessage(null);
+	}, []);
+
+	const handleCredentialsChange = useCallback((next: Credentials) => {
+		// SECURITY: Do NOT log credentials
+		setCredentials(next);
+		setCredentialsTouched(true);
+		// Reset validate status when credentials change
+		setValidateStatus("idle");
+		setValidateMessage(null);
+	}, []);
+
+	// ── Validate token ─────────────────────────────────────────────────────
+	const handleValidateToken = useCallback(async () => {
+		const bridge = getBridge();
+		if (!bridge?.validateCloneToken) return;
+		if (!credentials.token.trim()) {
+			setValidateStatus("error");
+			setValidateMessage("Enter a token before validating.");
+			return;
+		}
+
+		setValidateStatus("validating");
+		setValidateMessage(null);
+
+		try {
+			// SECURITY: Do NOT log credentials
+			const result = await bridge.validateCloneToken({
+				token: credentials.token.trim(),
+				username: credentials.username.trim() || undefined,
+			});
+
+			if (result.valid) {
+				setValidateStatus("ok");
+				setValidateMessage(result.message);
+			} else {
+				setValidateStatus("error");
+				setValidateMessage(result.message);
+			}
+		} catch {
+			setValidateStatus("error");
+			setValidateMessage("Validation request failed. Check your connection.");
+		}
+	}, [credentials]);
+
+	// ── Handle close (Cancel button / X button / Escape) ──────────────────
+	const handleClose = useCallback(() => {
+		if (isCloning) return;
+		// SECURITY: Do NOT log credentials — clear on close
+		clearCredentials();
+		onClose();
+	}, [isCloning, onClose, clearCredentials]);
 
 	// ── Escape key closes modal (unless cloning) ───────────────────────────
 	useEffect(() => {
 		if (!isOpen) return;
 		const handleKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape" && !isCloning) onClose();
+			if (e.key === "Escape" && !isCloning) handleClose();
 		};
 		window.addEventListener("keydown", handleKeyDown);
 		return () => window.removeEventListener("keydown", handleKeyDown);
-	}, [isOpen, isCloning, onClose]);
+	}, [isOpen, isCloning, handleClose]);
 
 	// ── Backdrop click closes modal (unless cloning) ───────────────────────
 	const handleBackdropClick = useCallback(
 		(e: React.MouseEvent<HTMLDivElement>) => {
-			if (e.target === e.currentTarget && !isCloning) onClose();
+			if (e.target === e.currentTarget && !isCloning) {
+				// SECURITY: Do NOT log credentials — clear on close
+				clearCredentials();
+				onClose();
+			}
 		},
-		[isCloning, onClose],
+		[isCloning, onClose, clearCredentials],
 	);
 
 	// ── Directory picker ───────────────────────────────────────────────────
@@ -230,42 +395,36 @@ export function CloneFromGitModal({
 			// Invalidate any in-flight visibility check so stale results are ignored
 			visibilityRequestIdRef.current += 1;
 			// Reset visibility, provider and permission state on every keystroke
-			// to prevent stale state from a previous detection
 			setVisibility("idle");
 			setProvider(null);
 			setRepoVisibility(null);
+			// SECURITY: Do NOT log credentials — clear on URL change
+			clearCredentials();
 			// Reset clone error when user edits the URL
 			if (phase === "error") {
 				setPhase("idle");
 				setCloneError(null);
+				setTechnicalDetails(null);
 			}
 		},
-		[phase],
+		[phase, clearCredentials],
 	);
 
 	/**
 	 * Core visibility detection logic — shared between blur and submit.
-	 * Accepts the URL to check explicitly to avoid closure staleness.
-	 * Returns the RepoVisibility result, or null if aborted (URL changed / unmounted).
-	 *
-	 * Race-condition protection: increments the request counter before the
-	 * async call and discards the result if the counter has changed by the
-	 * time the promise resolves (i.e. the user changed the URL mid-flight).
 	 */
 	const runVisibilityCheck = useCallback(async (urlToCheck: string): Promise<import("../utils/repoVisibility.ts").RepoVisibility | "invalid" | null> => {
-		// Skip detection if URL is empty or syntactically invalid
 		if (!urlToCheck.trim() || !isValidGitUrl(urlToCheck)) {
 			setVisibility("idle");
 			setProvider(null);
 			setRepoVisibility(null);
+			clearCredentials();
 			return "invalid";
 		}
 
-		// Capture and increment the request ID for this check
 		visibilityRequestIdRef.current += 1;
 		const thisRequestId = visibilityRequestIdRef.current;
 
-		// Extract provider from the URL before the async call
 		const parsed = parseRepoUrl(urlToCheck);
 		const detectedProvider = parsed?.provider ?? null;
 		setProvider(detectedProvider);
@@ -273,15 +432,19 @@ export function CloneFromGitModal({
 
 		const result = await detectRepoVisibility(urlToCheck);
 
-		// Guard: ignore result if modal was closed or URL changed during the async call
 		if (!mountedRef.current) return null;
 		if (visibilityRequestIdRef.current !== thisRequestId) return null;
 
 		setRepoVisibility(result);
-		// "not_found" (404) is treated as "private" in the badge UI
-		setVisibility(result === "not_found" ? "private" : result);
+		const resolvedVisibility = result === "not_found" ? "private" : result;
+		setVisibility(resolvedVisibility);
+
+		if (!(detectedProvider === "github" && resolvedVisibility === "private")) {
+			clearCredentials();
+		}
+
 		return result;
-	}, []);
+	}, [clearCredentials]);
 
 	// ── URL field blur — trigger visibility detection ──────────────────────
 	const handleUrlBlur = useCallback(async () => {
@@ -289,13 +452,26 @@ export function CloneFromGitModal({
 		await runVisibilityCheck(repoUrl);
 	}, [repoUrl, runVisibilityCheck]);
 
+	// ── Cancel clone ───────────────────────────────────────────────────────
+	const handleCancelClone = useCallback(async () => {
+		const bridge = getBridge();
+		if (!bridge?.cancelClone || !cloneIdRef.current) return;
+		try {
+			await bridge.cancelClone({ cloneId: cloneIdRef.current });
+		} catch {
+			// No-op — the clone will resolve with CANCELLED errorCode anyway
+		}
+	}, []);
+
 	// ── Done (post-success) ────────────────────────────────────────────────
 	const handleDone = useCallback(() => {
+		// SECURITY: Do NOT log credentials — clear before closing
+		clearCredentials();
 		if (clonedPath && onCloned) {
 			onCloned(clonedPath);
 		}
 		onClose();
-	}, [clonedPath, onCloned, onClose]);
+	}, [clonedPath, onCloned, onClose, clearCredentials]);
 
 	// ── Clone ──────────────────────────────────────────────────────────────
 	const handleClone = useCallback(
@@ -303,26 +479,33 @@ export function CloneFromGitModal({
 			e.preventDefault();
 			setUrlTouched(true);
 
-			// If visibility has not been checked yet (e.g. user never blurred the
-			// URL field), run the check now before proceeding. This prevents bypass
-			// via keyboard submit (Enter) without triggering onBlur.
 			let effectiveVisibilityResult = repoVisibility;
 			let effectiveProvider = provider;
 			if (urlValidation.valid && visibility === "idle") {
 				const parsed = parseRepoUrl(repoUrl);
 				effectiveProvider = parsed?.provider ?? null;
 				const checkResult = await runVisibilityCheck(repoUrl);
-				// Aborted (URL changed or modal closed mid-check) — bail out
 				if (checkResult === null) return;
-				// Invalid URL — bail out (syntax error, not a real URL)
 				if (checkResult === "invalid") return;
 				effectiveVisibilityResult = checkResult;
 			}
 
-			// Re-derive permission from the freshly-obtained visibility result
-			// (avoids relying on stale React state after the async check above)
 			const freshPermission = getClonePermission(effectiveProvider, effectiveVisibilityResult);
 			const { buttonDisabled: freshButtonDisabled } = getCloneUIState(freshPermission);
+
+			const freshCredentialsVisible =
+				effectiveProvider === "github" &&
+				(effectiveVisibilityResult === "private" || effectiveVisibilityResult === "not_found");
+
+			if (freshCredentialsVisible) {
+				setCredentialsTouched(true);
+				if (
+					credentials.username.trim() === "" ||
+					credentials.token.trim() === ""
+				) {
+					return;
+				}
+			}
 
 			const canCloneNow =
 				urlValidation.valid &&
@@ -342,33 +525,62 @@ export function CloneFromGitModal({
 				return;
 			}
 
+			// Generate a fresh UUID for this clone operation
+			const newCloneId = crypto.randomUUID();
+			cloneIdRef.current = newCloneId;
+
 			setPhase("cloning");
 			setCloneError(null);
+			setTechnicalDetails(null);
+			setShowTechnicalDetails(false);
+			setProgressStage(null);
+			setProgressPercent(undefined);
 
 			try {
-				const result = await bridge.cloneRepository({
+				// SECURITY: Do NOT log credentials — pass in-memory only, never persist
+				const cloneRequest: {
+					url: string;
+					destDir: string;
+					repoName?: string;
+					cloneId: string;
+					auth?: { username: string; token: string };
+				} = {
 					url: repoUrl.trim(),
 					destDir: selectedDir,
 					repoName: repoName || undefined,
-				});
+					cloneId: newCloneId,
+				};
+				if (freshCredentialsVisible) {
+					cloneRequest.auth = {
+						username: credentials.username.trim(),
+						token: credentials.token.trim(),
+					};
+				}
+
+				const result = await bridge.cloneRepository(cloneRequest);
+
+				// SECURITY: Clear credentials immediately after the request
+				clearCredentials();
 
 				if (result.success && result.clonedPath) {
 					setPhase("success");
 					setClonedPath(result.clonedPath);
 				} else {
 					setPhase("error");
-					setCloneError(
-						result.error ?? "An unexpected error occurred during cloning.",
-					);
+					setCloneError(getUxErrorMessage(result.errorCode, result.error));
+					if (result.technicalDetails) {
+						setTechnicalDetails(result.technicalDetails);
+					}
 				}
 			} catch (err) {
+				clearCredentials();
 				setPhase("error");
 				setCloneError(
 					err instanceof Error ? err.message : "An unexpected error occurred.",
 				);
 			}
 		},
-		[canClone, selectedDir, repoUrl, repoName, repoVisibility, provider, urlValidation.valid, visibility, isCloning, runVisibilityCheck],
+		[canClone, selectedDir, repoUrl, repoName, repoVisibility, provider, urlValidation.valid, visibility, isCloning, runVisibilityCheck, credentials, credentialsVisible, clearCredentials],
 	);
 
 	// ── Render ─────────────────────────────────────────────────────────────
@@ -394,7 +606,7 @@ export function CloneFromGitModal({
 					</h2>
 					<button
 						className="modal__close-btn"
-						onClick={onClose}
+						onClick={handleClose}
 						aria-label="Close dialog"
 						disabled={isCloning}
 					>
@@ -520,7 +732,51 @@ export function CloneFromGitModal({
 						)}
 					</div>
 
-					{/* ── Clone status messages ──────────────────────────────── */}
+					{/* ── Credentials (private GitHub repos only) ───────────── */}
+				{credentialsVisible && (
+					<>
+						<CredentialsBlock
+							credentials={credentials}
+							onChange={handleCredentialsChange}
+							onClear={clearCredentials}
+							disabled={isCloning || isCheckingVisibility}
+							show={credentialsVisible}
+							validation={{
+								usernameOk: credentialsTouched
+									? credentials.username.trim() !== ""
+									: undefined,
+								tokenOk: credentialsTouched
+									? credentials.token.trim() !== ""
+									: undefined,
+							}}
+						/>
+						{/* Validate token button */}
+						<div className="form-field" style={{ marginTop: "-0.5rem" }}>
+							<div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+								<button
+									type="button"
+									className="btn btn--secondary"
+									onClick={handleValidateToken}
+									disabled={isCloning || validateStatus === "validating" || !credentials.token.trim()}
+								>
+									{validateStatus === "validating" ? "Validating…" : "Validate Token"}
+								</button>
+								{validateStatus === "ok" && validateMessage && (
+									<span className="form-field__hint" style={{ color: "var(--color-success, #22c55e)" }} role="status">
+										✓ {validateMessage}
+									</span>
+								)}
+								{validateStatus === "error" && validateMessage && (
+									<span className="form-field__error" role="alert">
+										{validateMessage}
+									</span>
+								)}
+							</div>
+						</div>
+					</>
+				)}
+
+				{/* ── Clone status messages ──────────────────────────────── */}
 
 					{phase === "cloning" && (
 						<div
@@ -529,7 +785,17 @@ export function CloneFromGitModal({
 							aria-live="polite"
 						>
 							<span className="form-field__status-spinner" aria-hidden="true" />
-							Cloning repository… This may take a moment.
+							{progressStage
+								? `${stageLabel(progressStage)}${progressPercent !== undefined ? ` — ${progressPercent}%` : "…"}`
+								: "Cloning repository… This may take a moment."}
+							{progressPercent !== undefined && (
+								<progress
+									value={progressPercent}
+									max={100}
+									aria-label="Clone progress"
+									style={{ display: "block", width: "100%", marginTop: "0.5rem" }}
+								/>
+							)}
 						</div>
 					)}
 
@@ -550,6 +816,27 @@ export function CloneFromGitModal({
 							aria-live="assertive"
 						>
 							⚠ {cloneError}
+							{technicalDetails && (
+								<details style={{ marginTop: "0.5rem" }}>
+									<summary
+										style={{ cursor: "pointer", fontSize: "0.8em", opacity: 0.75 }}
+										onClick={() => setShowTechnicalDetails((v) => !v)}
+									>
+										{showTechnicalDetails ? "Hide" : "Show"} technical details
+									</summary>
+									<pre
+										style={{
+											marginTop: "0.4rem",
+											fontSize: "0.75em",
+											whiteSpace: "pre-wrap",
+											wordBreak: "break-all",
+											opacity: 0.85,
+										}}
+									>
+										{technicalDetails}
+									</pre>
+								</details>
+							)}
 						</div>
 					)}
 
@@ -565,14 +852,24 @@ export function CloneFromGitModal({
 							</button>
 						) : (
 							<>
+							{isCloning ? (
 								<button
 									type="button"
 									className="btn btn--ghost"
-									onClick={onClose}
-						disabled={isCloning || isCheckingVisibility}
+									onClick={handleCancelClone}
+								>
+									Cancel Clone
+								</button>
+							) : (
+								<button
+									type="button"
+									className="btn btn--ghost"
+									onClick={handleClose}
+									disabled={isCheckingVisibility}
 								>
 									Cancel
 								</button>
+							)}
 								<button
 									type="submit"
 									className="btn btn--primary"

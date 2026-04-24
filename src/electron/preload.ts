@@ -105,6 +105,9 @@ import type {
 	ExportProfileConflictResponse,
 	SyncTasksRequest,
 	CloneRepositoryRequest,
+	CloneCancelRequest,
+	CloneValidateRequest,
+	CloneProgressEvent,
 	GitHubFetchRequest,
 	// ── Folder Explorer ───────────────────────────────────────────────────────
 	FolderExplorerListRequest,
@@ -439,6 +442,28 @@ const bridge: AgentsFlowBridge = {
 
 	cloneRepository(req: CloneRepositoryRequest) {
 		return ipcRenderer.invoke(IPC_CHANNELS.GIT_CLONE, req);
+	},
+
+	cancelClone(req: CloneCancelRequest) {
+		return ipcRenderer.invoke(IPC_CHANNELS.GIT_CLONE_CANCEL, req);
+	},
+
+	validateCloneToken(req: CloneValidateRequest) {
+		return ipcRenderer.invoke(IPC_CHANNELS.GIT_CLONE_VALIDATE, req);
+	},
+
+	onCloneProgress(callback: (event: CloneProgressEvent) => void) {
+		ipcRenderer.removeAllListeners(IPC_CHANNELS.GIT_CLONE_PROGRESS);
+		ipcRenderer.on(
+			IPC_CHANNELS.GIT_CLONE_PROGRESS,
+			(_event, progressEvent: CloneProgressEvent) => {
+				callback(progressEvent);
+			},
+		);
+	},
+
+	offCloneProgress() {
+		ipcRenderer.removeAllListeners(IPC_CHANNELS.GIT_CLONE_PROGRESS);
 	},
 
 	// ── Git remote origin detection ────────────────────────────────────────────

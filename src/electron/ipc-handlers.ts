@@ -109,6 +109,11 @@ import type {
 	ExportProfileConflictResponse,
 	CloneRepositoryRequest,
 	CloneRepositoryResult,
+	CloneProgressEvent,
+	CloneCancelRequest,
+	CloneCancelResult,
+	CloneValidateRequest,
+	CloneValidateResult,
 	GitHubFetchRequest,
 	GitHubFetchResult,
 } from "./bridge.types.ts";
@@ -151,6 +156,151 @@ import {
 	registerFolderExplorerHandlers,
 	FOLDER_EXPLORER_CHANNELS,
 } from "../../electron-main/src/ipc/index.ts";
+
+// ── Git Clone — active process registry ───────────────────────────────────
+//
+// Maps cloneId (UUID) → ChildProcess for in-flight clone operations.
+// Used by the cancel handler to send SIGTERM/SIGKILL.
+// Entries are removed when the child process exits (close/error events).
+//
+// Security: credentials are NEVER stored here — only the process handle.
+// Concurrency: limited to MAX_CONCURRENT_CLONES to prevent DoS.
+
+import type { ChildProcess } from "node:child_process";
+
+const activeClones = new Map<string, ChildProcess>();
+
+/**
+ * Set of cloneIds that have been explicitly cancelled by the user via
+ * GIT_CLONE_CANCEL. This lives at module scope so the cancel handler
+ * (a separate ipcMain.handle invocation) can signal the close handler
+ * running inside the GIT_CLONE Promise closure.
+ *
+ * Without this, on platforms where Node delivers signal=null on kill()
+ * (e.g. Windows), the close handler would not know the exit was a
+ * user-initiated cancel and would misclassify it as an error.
+ *
+ * Entries are removed in the close/error handler immediately after use.
+ */
+const cancelledCloneIds = new Set<string>();
+
+/** Maximum number of simultaneous git clone processes allowed */
+const MAX_CONCURRENT_CLONES = 3;
+
+/**
+ * Sanitizes a string that may contain embedded credentials in a URL.
+ * Replaces `https://user:pass@` with `https://[REDACTED]@` before logging.
+ * SECURITY: Always call this before logging any git output or URL.
+ */
+function sanitizeCredentials(text: string): string {
+	return text.replace(/https?:\/\/[^:@\s]+:[^@\s]+@/g, "https://[REDACTED]@");
+}
+
+/**
+ * Maps a raw git stderr string to a CloneRepositoryResult errorCode.
+ * Called after git exits with a non-zero code.
+ */
+function mapGitStderrToErrorCode(
+	stderr: string,
+): CloneRepositoryResult["errorCode"] {
+	const s = stderr.toLowerCase();
+	if (
+		s.includes("authentication failed") ||
+		s.includes("could not read username") ||
+		s.includes("invalid username or password") ||
+		s.includes("repository not found") ||
+		s.includes("access denied") ||
+		s.includes("403") ||
+		s.includes("401")
+	) {
+		return "AUTH_ERROR";
+	}
+	if (
+		s.includes("could not resolve host") ||
+		s.includes("network is unreachable") ||
+		s.includes("connection timed out") ||
+		s.includes("unable to connect") ||
+		s.includes("failed to connect")
+	) {
+		return "NETWORK_ERROR";
+	}
+	if (s.includes("permission denied") || s.includes("read-only file system")) {
+		return "IO_ERROR";
+	}
+	return "UNKNOWN";
+}
+
+/**
+ * Maps a CloneRepositoryResult errorCode to a user-facing UX message and
+ * actionable suggestion. Used by the renderer to display clear error messages.
+ *
+ * Note: This mapping is also documented in bridge.types.ts for reference.
+ * The renderer can use this function or implement its own mapping.
+ */
+export function getCloneErrorMessage(
+	errorCode: CloneRepositoryResult["errorCode"],
+	details?: { status?: number },
+): { message: string; suggestion: string } {
+	switch (errorCode) {
+		case "AUTH_ERROR": {
+			const is401 = details?.status === 401;
+			const is403 = details?.status === 403;
+			return {
+				message: is401
+					? "Autenticación fallida: token inválido o expirado."
+					: is403
+						? "Autenticación fallida: token sin permisos suficientes."
+						: "Autenticación fallida: token o usuario inválido o sin permisos.",
+				suggestion:
+					'Verifique usuario y token; asegúrese que el token tenga permiso "repo" o acceso necesario. Use "Validar token" para verificar antes de clonar.',
+			};
+		}
+		case "DEST_EXISTS":
+			return {
+				message: "Directorio destino ya existe y no está vacío.",
+				suggestion:
+					"Elija otro directorio o mueva/borre el existente. Si desea sobreescribir, haga backup manualmente.",
+			};
+		case "NETWORK_ERROR":
+			return {
+				message: "Error de red al intentar clonar.",
+				suggestion: "Verifique conexión y proxy. Intente nuevamente.",
+			};
+		case "GIT_NOT_FOUND":
+			return {
+				message: "Git no está instalado (o no encontrado en PATH).",
+				suggestion: "Instale Git y reinicie la aplicación.",
+			};
+		case "IO_ERROR":
+			return {
+				message: "Error de disco/permiso al escribir en el destino.",
+				suggestion:
+					"Verifique permisos del directorio de destino y espacio en disco.",
+			};
+		case "INVALID_URL":
+			return {
+				message: "URL de repositorio inválida.",
+				suggestion: "Verifique que la URL sea una URL Git válida.",
+			};
+		case "CANCELLED":
+			return {
+				message: "Clonado cancelado por el usuario.",
+				suggestion: "Puede iniciar el clonado nuevamente cuando esté listo.",
+			};
+		case "CONCURRENT_LIMIT":
+			return {
+				message: `Límite de clones simultáneos alcanzado (máximo ${MAX_CONCURRENT_CLONES}).`,
+				suggestion:
+					"Espere a que finalice algún clone en curso antes de iniciar uno nuevo.",
+			};
+		default:
+			return {
+				message: "Error desconocido al clonar.",
+				suggestion:
+					"Revise los detalles técnicos (sanitizados) y contacte soporte si persiste.",
+			};
+	}
+}
 
 // ── Recents storage ────────────────────────────────────────────────────────
 
@@ -2328,26 +2478,108 @@ export function registerIpcHandlers(): void {
 	registerFolderExplorerHandlers(ipcMain);
 
 	// ══════════════════════════════════════════════════════════════════════
-	// Git Clone handler
+	// Git Clone handler — full implementation
 	//
-	// Spawns `git clone <url> <destDir>/<repoName>` in the main process.
-	// Never rejects — all errors are surfaced via CloneRepositoryResult.errorCode.
+	// Features:
+	//   • Ephemeral authenticated URL (cleared immediately after spawn)
+	//   • Real-time progress via stderr parsing + IPC git:clone:progress events
+	//   • Throttled progress emission (max 1 event per 500ms per stage change)
+	//   • activeClones registry for cancellation support
+	//   • Concurrency limit (MAX_CONCURRENT_CLONES)
+	//   • Sanitized logging — credentials NEVER appear in logs
+	//   • Detailed error mapping (AUTH_ERROR, NETWORK_ERROR, DEST_EXISTS, etc.)
+	//   • technicalDetails field in result for UI "Detalles técnicos" section
 	//
-	// Error mapping strategy:
-	//   • git not found (ENOENT on spawn)    → GIT_NOT_FOUND
-	//   • destination already exists/non-empty → DEST_EXISTS
-	//   • git stderr contains "Authentication" → AUTH_ERROR
-	//   • git stderr contains "Could not resolve host" → NETWORK_ERROR
-	//   • any other non-zero exit            → UNKNOWN
+	// Security:
+	//   • GIT_TERMINAL_PROMPT=0 and GIT_ASKPASS="" prevent interactive prompts
+	//   • cloneUrl cleared immediately after spawn (line: cloneUrl = "")
+	//   • All stderr/logs pass through sanitizeCredentials()
+	//   • auth object is never stored in activeClones or any persistent state
 	// ══════════════════════════════════════════════════════════════════════
 
 	ipcMain.handle(
 		IPC_CHANNELS.GIT_CLONE,
 		async (
-			_event,
+			event,
 			req: CloneRepositoryRequest,
 		): Promise<CloneRepositoryResult> => {
-			const { url, destDir } = req;
+			const { url, destDir, cloneId } = req;
+
+			// ── Validate cloneId ─────────────────────────────────────────────
+			if (!cloneId || typeof cloneId !== "string") {
+				return {
+					success: false,
+					errorCode: "INVALID_URL",
+					error: "Missing or invalid cloneId in request.",
+				};
+			}
+
+			// ── Validate URL (main-process guard) ─────────────────────────────
+			// The renderer validates before sending, but we re-validate here as a
+			// defence-in-depth measure. An empty or non-parseable URL would cause
+			// `new URL(url)` to throw silently later, leaving auth stripped.
+			if (!url || typeof url !== "string" || !url.trim()) {
+				return {
+					success: false,
+					cloneId,
+					errorCode: "INVALID_URL",
+					error: "Repository URL is required.",
+				};
+			}
+			// Must be a parseable absolute URL (https/http/git/ssh) or SSH shorthand
+			const looksLikeUrl =
+				/^https?:\/\/.+/.test(url.trim()) ||
+				/^git@.+:.+/.test(url.trim()) ||
+				/^(git|ssh):\/\/.+/.test(url.trim());
+			if (!looksLikeUrl) {
+				return {
+					success: false,
+					cloneId,
+					errorCode: "INVALID_URL",
+					error: `Invalid repository URL: "${sanitizeCredentials(url)}"`,
+				};
+			}
+
+			// ── Validate destDir ──────────────────────────────────────────────
+			if (!destDir || typeof destDir !== "string" || !destDir.trim()) {
+				return {
+					success: false,
+					cloneId,
+					errorCode: "IO_ERROR",
+					error: "Destination directory is required.",
+				};
+			}
+			try {
+				const destStat = await stat(destDir);
+				if (!destStat.isDirectory()) {
+					return {
+						success: false,
+						cloneId,
+						errorCode: "IO_ERROR",
+						error: `Destination path is not a directory: ${destDir}`,
+					};
+				}
+			} catch {
+				return {
+					success: false,
+					cloneId,
+					errorCode: "IO_ERROR",
+					error: `Destination directory does not exist or is not accessible: ${destDir}`,
+				};
+			}
+
+			// ── Concurrency guard ─────────────────────────────────────────────
+			if (activeClones.size >= MAX_CONCURRENT_CLONES) {
+				console.warn(
+					`[GIT_CLONE] Concurrent limit reached (${MAX_CONCURRENT_CLONES}) — rejecting cloneId=${cloneId}`,
+				);
+				return {
+					success: false,
+					cloneId,
+					errorCode: "CONCURRENT_LIMIT",
+					error: `Maximum concurrent clones (${MAX_CONCURRENT_CLONES}) reached. Wait for an active clone to finish.`,
+				};
+			}
 
 			// ── Derive repo name ─────────────────────────────────────────────
 			const repoName =
@@ -2371,91 +2603,427 @@ export function registerIpcHandlers(): void {
 				if (!isEmpty) {
 					return {
 						success: false,
+						cloneId,
 						errorCode: "DEST_EXISTS",
 						error: `Destination already exists and is not empty: ${clonedPath}`,
+						technicalDetails: `Path: ${clonedPath}`,
 					};
 				}
 			}
 
-			// ── Spawn git clone ───────────────────────────────────────────────
+			// ── Build ephemeral authenticated URL ─────────────────────────────
+			// SECURITY: cloneUrl is cleared immediately after spawn.
+			// Never log cloneUrl — always log the original `url` (no credentials).
+			let cloneUrl: string = url;
+			if (req.auth?.username && req.auth?.token) {
+				try {
+					const authUrl = new URL(url);
+					authUrl.username = encodeURIComponent(req.auth.username);
+					authUrl.password = encodeURIComponent(req.auth.token);
+					cloneUrl = authUrl.toString();
+				} catch {
+					// Invalid URL — continue without auth; git will fail with a clear error
+					cloneUrl = url;
+				}
+			}
+
+			// Log ALWAYS with clean URL (no credentials)
+			console.log(
+				`[GIT_CLONE] Starting clone: cloneId=${cloneId} url=${url} → ${clonedPath}`,
+			);
+
 			return new Promise<CloneRepositoryResult>((resolve) => {
-				let stderrOutput = "";
+				let stderrBuffer = "";
 
-				const child = spawn("git", ["clone", url, clonedPath], {
-					stdio: ["ignore", "pipe", "pipe"],
-					env: {
-						...process.env,
-						// Prevent interactive auth prompts — let git fail fast instead
-						GIT_TERMINAL_PROMPT: "0",
+				// ── Progress throttling state ──────────────────────────────────
+				// Emit at most one progress event per 500ms per unique stage change
+				// to avoid flooding the renderer IPC channel.
+				let lastEmittedPercent: number | undefined = undefined;
+				let lastEmittedStage: string | undefined = undefined;
+				let lastEmitTime = 0;
+				const PROGRESS_THROTTLE_MS = 500;
+
+				// ── Spawn git clone ────────────────────────────────────────────
+				const child = spawn(
+					"git",
+					["clone", "--progress", "--", cloneUrl, clonedPath],
+					{
+						stdio: ["ignore", "pipe", "pipe"],
+						env: {
+							...process.env,
+							// Prevent interactive auth prompts — let git fail fast
+							GIT_TERMINAL_PROMPT: "0",
+							GIT_ASKPASS: "",
+						},
 					},
+				);
+
+				// SECURITY: Clear authenticated URL reference immediately after spawn.
+				// The variable goes out of scope at function exit, but we zero it now
+				// to minimize the window during which it exists in memory.
+				cloneUrl = "";
+
+				// Register in activeClones BEFORE any async work
+				activeClones.set(cloneId, child);
+
+				// ── Stdout (git clone is mostly silent on stdout) ──────────────
+				child.stdout?.on("data", () => {
+					// Intentionally ignored — git clone progress goes to stderr
 				});
 
+				// ── Stderr: progress parsing ───────────────────────────────────
 				child.stderr?.on("data", (chunk: Buffer) => {
-					stderrOutput += chunk.toString();
+					// Sanitize before any processing — credentials must never appear
+					const raw = sanitizeCredentials(chunk.toString());
+					stderrBuffer += raw;
+
+					// Split on CR or LF to handle git's \r progress updates
+					const lines = raw.split(/[\r\n]+/);
+
+					for (const line of lines) {
+						const trimmed = line.trim();
+						if (!trimmed) continue;
+
+						// ── Parse progress percentage ──────────────────────────
+						// Git progress lines look like:
+						//   "Receiving objects:  45% (450/1000), 1.23 MiB | 500 KiB/s"
+						//   "Resolving deltas:  12% (12/100)"
+						//   "Counting objects: 100% (100/100), done."
+						const progressMatch = trimmed.match(
+							/^([A-Za-z][A-Za-z ]+?):\s+(\d{1,3})%/,
+						);
+
+						let stage: CloneProgressEvent["stage"] = "UNKNOWN_STAGE";
+						let percent: number | undefined = undefined;
+
+						if (progressMatch) {
+							const stageRaw = progressMatch[1]?.trim().toLowerCase() ?? "";
+							percent = Math.min(100, Math.max(0, parseInt(progressMatch[2] ?? "0", 10)));
+
+							if (stageRaw.includes("counting")) {
+								stage = "COUNTING_OBJECTS";
+							} else if (stageRaw.includes("compress")) {
+								stage = "COMPRESSING";
+							} else if (stageRaw.includes("receiving")) {
+								stage = "RECEIVING_OBJECTS";
+							} else if (stageRaw.includes("resolving")) {
+								stage = "RESOLVING_DELTAS";
+							} else if (stageRaw.includes("checking out")) {
+								stage = "CHECKING_OUT";
+							} else {
+								stage = "UNKNOWN_STAGE";
+							}
+						}
+
+						// ── Throttle emission ──────────────────────────────────
+						// Emit if: stage changed OR percent changed OR 500ms elapsed
+						const now = Date.now();
+						const stageChanged = stage !== lastEmittedStage;
+						const percentChanged = percent !== lastEmittedPercent;
+						const timeElapsed = now - lastEmitTime >= PROGRESS_THROTTLE_MS;
+
+						if (stageChanged || percentChanged || timeElapsed) {
+							lastEmittedStage = stage;
+							lastEmittedPercent = percent;
+							lastEmitTime = now;
+
+							const progressPayload: CloneProgressEvent = {
+								cloneId,
+								stage,
+								percent,
+								raw: trimmed,
+							};
+
+							// Guard: sender may have been destroyed if window closed
+							try {
+								if (!event.sender.isDestroyed()) {
+									event.sender.send(
+										IPC_CHANNELS.GIT_CLONE_PROGRESS,
+										progressPayload,
+									);
+								}
+							} catch {
+								// Renderer gone — continue clone but stop emitting
+							}
+						}
+					}
 				});
 
+				// ── Process error (e.g. git not found) ────────────────────────
 				child.on("error", (err: NodeJS.ErrnoException) => {
+					activeClones.delete(cloneId);
+					cancelledCloneIds.delete(cloneId);
 					if (err.code === "ENOENT") {
+						console.error("[GIT_CLONE] git binary not found — ENOENT");
 						resolve({
 							success: false,
+							cloneId,
 							errorCode: "GIT_NOT_FOUND",
-							error:
-								"`git` binary was not found. Make sure Git is installed and on your PATH.",
+							error: "`git` binary was not found. Make sure Git is installed and on your PATH.",
+							technicalDetails: err.message,
 						});
 					} else {
+						console.error(
+							"[GIT_CLONE] spawn error —",
+							sanitizeCredentials(err.message),
+						);
 						resolve({
 							success: false,
+							cloneId,
 							errorCode: "IO_ERROR",
-							error: err.message,
+							error: `Spawn error: ${sanitizeCredentials(err.message)}`,
+							technicalDetails: sanitizeCredentials(err.message),
 						});
 					}
 				});
 
-				child.on("close", (code: number | null) => {
+				// ── Process close ──────────────────────────────────────────────
+				child.on("close", (code: number | null, signal: string | null) => {
+					activeClones.delete(cloneId);
+
+					// Cancelled by user: check both the module-level set (cross-handler
+					// communication, works on all platforms including Windows where
+					// signal may be null) and the signal name as a fallback.
+					const wasCancelled =
+						cancelledCloneIds.has(cloneId) ||
+						signal === "SIGTERM" ||
+						signal === "SIGKILL";
+					cancelledCloneIds.delete(cloneId);
+
+					if (wasCancelled) {
+						console.log(
+							`[GIT_CLONE] Cancelled: cloneId=${cloneId} signal=${signal ?? "none (cancelled via cancelledCloneIds)"}`,
+						);
+						resolve({
+							success: false,
+							cloneId,
+							errorCode: "CANCELLED",
+							error: "Clone cancelled by user.",
+							technicalDetails: `Signal: ${signal ?? "none"}`,
+						});
+						return;
+					}
+
 					if (code === 0) {
-						resolve({ success: true, clonedPath });
+						console.log(
+							`[GIT_CLONE] Success: cloneId=${cloneId} → ${clonedPath}`,
+						);
+						resolve({ success: true, cloneId, clonedPath });
 						return;
 					}
 
-					const stderr = stderrOutput.toLowerCase();
+					// Map stderr to error code
+					const errorCode = mapGitStderrToErrorCode(stderrBuffer);
+					const sanitizedStderr = sanitizeCredentials(stderrBuffer.trim());
 
-					if (
-						stderr.includes("authentication failed") ||
-						stderr.includes("could not read username") ||
-						stderr.includes("invalid username or password") ||
-						stderr.includes("repository not found") ||
-						stderr.includes("access denied")
-					) {
-						resolve({
-							success: false,
-							errorCode: "AUTH_ERROR",
-							error:
-								"Authentication failed. Check your credentials or make sure you have access to the repository.",
-						});
-						return;
-					}
-
-					if (
-						stderr.includes("could not resolve host") ||
-						stderr.includes("network is unreachable") ||
-						stderr.includes("connection timed out") ||
-						stderr.includes("unable to connect")
-					) {
-						resolve({
-							success: false,
-							errorCode: "NETWORK_ERROR",
-							error:
-								"Network error. Check your internet connection and try again.",
-						});
-						return;
-					}
+					console.error(
+						`[GIT_CLONE] Failed: cloneId=${cloneId} code=${code} errorCode=${errorCode}`,
+					);
+					// SECURITY: sanitizedStderr has already had credentials removed
+					console.error("[GIT_CLONE] stderr (sanitized):", sanitizedStderr);
 
 					resolve({
 						success: false,
-						errorCode: "UNKNOWN",
-						error: stderrOutput.trim() || `git clone exited with code ${code}`,
+						cloneId,
+						errorCode,
+						error: sanitizedStderr || `git clone exited with code ${code}`,
+						technicalDetails: sanitizedStderr,
 					});
 				});
+			});
+		},
+	);
+
+	// ══════════════════════════════════════════════════════════════════════
+	// Git Clone Cancel handler
+	//
+	// Sends SIGTERM to the child process identified by cloneId.
+	// If the process does not exit within 5 seconds, sends SIGKILL.
+	// ══════════════════════════════════════════════════════════════════════
+
+	ipcMain.handle(
+		IPC_CHANNELS.GIT_CLONE_CANCEL,
+		async (
+			_event,
+			req: CloneCancelRequest,
+		): Promise<CloneCancelResult> => {
+			const { cloneId } = req;
+			const child = activeClones.get(cloneId);
+
+			if (!child) {
+				console.warn(
+					`[GIT_CLONE_CANCEL] No active clone found for cloneId=${cloneId}`,
+				);
+				return {
+					sent: false,
+					message: `No active clone found for cloneId: ${cloneId}`,
+				};
+			}
+
+			console.log(
+				`[GIT_CLONE_CANCEL] Sending SIGTERM to cloneId=${cloneId} pid=${child.pid}`,
+			);
+
+			// Register cancellation BEFORE sending the signal so the close handler
+			// (which runs in the GIT_CLONE Promise closure) can detect it reliably
+			// on all platforms, including Windows where signal may arrive as null.
+			cancelledCloneIds.add(cloneId);
+
+			child.kill("SIGTERM");
+
+			// Schedule SIGKILL if process does not exit within 5 seconds
+			const sigkillTimeout = setTimeout(() => {
+				if (activeClones.has(cloneId)) {
+					console.warn(
+						`[GIT_CLONE_CANCEL] Process did not exit after 5s — sending SIGKILL cloneId=${cloneId}`,
+					);
+					child.kill("SIGKILL");
+				}
+			}, 5_000);
+
+			// Clear the SIGKILL timeout if the process exits naturally
+			child.once("close", () => {
+				clearTimeout(sigkillTimeout);
+			});
+
+			return {
+				sent: true,
+				message: `Cancellation signal sent to clone ${cloneId}.`,
+			};
+		},
+	);
+
+	// ══════════════════════════════════════════════════════════════════════
+	// Git Clone Validate handler
+	//
+	// Validates a GitHub Personal Access Token against GET /user.
+	// Returns CloneValidateResult with status 200/401/403/429.
+	//
+	// Security:
+	//   • Token is used only for this request — never logged or persisted.
+	//   • Authorization header value is never logged.
+	//   • Rate-limit headers are inspected but never forwarded to the renderer.
+	// ══════════════════════════════════════════════════════════════════════
+
+	ipcMain.handle(
+		IPC_CHANNELS.GIT_CLONE_VALIDATE,
+		async (
+			_event,
+			req: CloneValidateRequest,
+		): Promise<CloneValidateResult> => {
+			// SECURITY: Do NOT log req.token
+			console.log("[GIT_CLONE_VALIDATE] Validating token against GitHub API");
+
+			if (!req.token || typeof req.token !== "string" || !req.token.trim()) {
+				return {
+					valid: false,
+					message: "Token vacío o inválido.",
+					errorCode: "TOKEN_INVALID",
+				};
+			}
+
+			return new Promise<CloneValidateResult>((resolve) => {
+				const requestOptions: https.RequestOptions = {
+					method: "GET",
+					hostname: "api.github.com",
+					path: "/user",
+					headers: {
+						Accept: "application/vnd.github+json",
+						"User-Agent": "AgentsFlow-Electron",
+						"X-GitHub-Api-Version": "2022-11-28",
+						// SECURITY: token value is never logged
+						Authorization: `Bearer ${req.token}`,
+					},
+				};
+
+				const request = https.request(requestOptions, (res) => {
+					let body = "";
+					res.setEncoding("utf-8");
+					res.on("data", (chunk: string) => {
+						body += chunk;
+					});
+					res.on("end", () => {
+						const status = res.statusCode ?? 0;
+						// SECURITY: Do NOT log the Authorization header or token
+						console.log("[GIT_CLONE_VALIDATE] GitHub API response status:", status);
+
+						if (status === 200) {
+							resolve({
+								valid: true,
+								status,
+								message: "Token válido. Autenticación correcta.",
+							});
+						} else if (status === 401) {
+							resolve({
+								valid: false,
+								status,
+								message: "Token inválido o expirado (HTTP 401).",
+								errorCode: "TOKEN_INVALID",
+							});
+						} else if (status === 403) {
+							// Could be rate-limited or missing scope
+							const rateLimitRemaining = res.headers["x-ratelimit-remaining"];
+							const isRateLimited =
+								rateLimitRemaining !== undefined &&
+								parseInt(String(rateLimitRemaining), 10) === 0;
+							if (isRateLimited) {
+								resolve({
+									valid: false,
+									status,
+									message:
+										"Rate limit de GitHub alcanzado (HTTP 403). Intente más tarde.",
+									errorCode: "RATE_LIMITED",
+								});
+							} else {
+								resolve({
+									valid: false,
+									status,
+									message:
+										'Token sin permisos suficientes (HTTP 403). Asegúrese de que el token tenga scope "repo".',
+									errorCode: "TOKEN_NO_SCOPE",
+								});
+							}
+						} else if (status === 429) {
+							resolve({
+								valid: false,
+								status,
+								message: "Rate limit de GitHub alcanzado (HTTP 429). Intente más tarde.",
+								errorCode: "RATE_LIMITED",
+							});
+						} else {
+							resolve({
+								valid: false,
+								status,
+								message: `Respuesta inesperada de GitHub API (HTTP ${status}).`,
+								errorCode: "UNKNOWN",
+							});
+						}
+					});
+				});
+
+				request.on("error", (err: Error) => {
+					console.error(
+						"[GIT_CLONE_VALIDATE] Network error —",
+						err.message,
+					);
+					resolve({
+						valid: false,
+						message: `Error de red al validar token: ${err.message}`,
+						errorCode: "NETWORK_ERROR",
+					});
+				});
+
+				request.setTimeout(10_000, () => {
+					request.destroy();
+					console.error("[GIT_CLONE_VALIDATE] Request timed out");
+					resolve({
+						valid: false,
+						message: "Tiempo de espera agotado al validar token.",
+						errorCode: "NETWORK_ERROR",
+					});
+				});
+
+				request.end();
 			});
 		},
 	);
