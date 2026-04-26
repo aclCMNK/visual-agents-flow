@@ -640,9 +640,8 @@ export function registerIpcHandlers(): void {
 	}
 
 	// ── Open folder dialog ─────────────────────────────────────────────────
-	ipcMain.handle(IPC_CHANNELS.OPEN_FOLDER_DIALOG, async (event) => {
+	ipcMain.handle(IPC_CHANNELS.OPEN_FOLDER_DIALOG, async () => {
 		console.log("[ipc] OPEN_FOLDER_DIALOG: opening native folder picker");
-		const win = BrowserWindow.fromWebContents(event.sender);
 		const opts = {
 			title: "Open AgentFlow Project",
 			properties: ["openDirectory", "createDirectory"] as (
@@ -650,9 +649,7 @@ export function registerIpcHandlers(): void {
 				| "createDirectory"
 			)[],
 		};
-		const result = win
-			? await dialog.showOpenDialog(win, opts)
-			: await dialog.showOpenDialog(opts);
+		const result = await dialog.showOpenDialog(opts);
 
 		if (result.canceled || result.filePaths.length === 0) {
 			console.log("[ipc] OPEN_FOLDER_DIALOG: user cancelled or no selection");

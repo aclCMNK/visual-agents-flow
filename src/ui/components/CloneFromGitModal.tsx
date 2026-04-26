@@ -6,11 +6,12 @@
  * Fields:
  *   1. Repository URL  — free text; validated for Git URL format
  *   2. Repo name       — read-only, auto-derived from the URL
- *   3. Directory       — native folder picker (starts at home dir)
+ *   3. Directory       — in-app FolderExplorer (starts at home dir)
  *
  * Buttons:
  *   - Cancel  → closes modal, resets form (disabled while cloning)
- *   - Clone   → enabled only when URL is valid AND a directory is selected
+ *   - Clone   → enabled only when URL is valid (GitHub), destination is selected,
+ *               and credentials are validated for private repos
  *
  * Clone operation states: idle → cloning → success | error
  *
@@ -40,6 +41,7 @@ import {
 	CredentialsBlock,
 	type Credentials,
 } from "./CredentialsBlock.tsx";
+import { FolderExplorer } from "../../renderer/components/FolderExplorer/FolderExplorer.tsx";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -79,7 +81,6 @@ function getBridge() {
 		return (
 			window as unknown as {
 				agentsFlow?: {
-					openFolderDialog?: () => Promise<string | null>;
 					cloneRepository?: (req: {
 						url: string;
 						destDir: string;
@@ -214,6 +215,9 @@ export function CloneFromGitModal({
 	// ── Progress state ─────────────────────────────────────────────────────
 	const [progressStage, setProgressStage] = useState<CloneProgressEvent["stage"] | null>(null);
 	const [progressPercent, setProgressPercent] = useState<number | undefined>(undefined);
+	const [dirDialogFeedback, setDirDialogFeedback] = useState<string | null>(null);
+	const [isDirExplorerOpen, setIsDirExplorerOpen] = useState(false);
+	const [dirCandidate, setDirCandidate] = useState<string | null>(null);
 
 	// ── Clone ID (UUID per operation) ──────────────────────────────────────
 	const cloneIdRef = useRef<string>("");
@@ -233,16 +237,23 @@ export function CloneFromGitModal({
 	const clonePermission = getClonePermission(provider, repoVisibility);
 	const { buttonDisabled, errorMessage } = getCloneUIState(clonePermission);
 
-	const visibilityPending = urlValidation.valid && visibility === "idle";
+	const visibilityResolved = visibility !== "idle" && visibility !== "checking";
+	const isGithubUrl = provider === "github";
 	const credentialsOk =
 		!credentialsVisible ||
-		(credentials.username.trim() !== "" && credentials.token.trim() !== "");
+		(
+			credentials.username.trim() !== "" &&
+			credentials.token.trim() !== "" &&
+			validateStatus === "ok"
+		);
 	const canClone =
 		urlValidation.valid &&
+		isGithubUrl &&
+		visibilityResolved &&
 		selectedDir !== null &&
+		!isDirExplorerOpen &&
 		!isCloning &&
 		!isCheckingVisibility &&
-		!visibilityPending &&
 		!buttonDisabled &&
 		credentialsOk;
 
@@ -284,6 +295,9 @@ export function CloneFromGitModal({
 			setShowTechnicalDetails(false);
 			setProgressStage(null);
 			setProgressPercent(undefined);
+			setDirDialogFeedback(null);
+			setIsDirExplorerOpen(false);
+			setDirCandidate(null);
 			// SECURITY: Do NOT log credentials — clear on open
 			setCredentials({ username: "", token: "" });
 			setCredentialsTouched(false);
@@ -314,6 +328,24 @@ export function CloneFromGitModal({
 	}, []);
 
 	// ── Validate token ─────────────────────────────────────────────────────
+	const runVisibilityCheckWithToken = useCallback(async (urlToCheck: string, token: string): Promise<void> => {
+		if (!urlToCheck.trim() || !isValidGitUrl(urlToCheck) || !token.trim()) return;
+
+		visibilityRequestIdRef.current += 1;
+		const thisRequestId = visibilityRequestIdRef.current;
+
+		setVisibility("checking");
+
+		const result = await detectRepoVisibility(urlToCheck, token);
+
+		if (!mountedRef.current) return;
+		if (visibilityRequestIdRef.current !== thisRequestId) return;
+
+		setRepoVisibility(result);
+		const resolvedVisibility = result === "not_found" ? "private" : result;
+		setVisibility(resolvedVisibility);
+	}, []);
+
 	const handleValidateToken = useCallback(async () => {
 		const bridge = getBridge();
 		if (!bridge?.validateCloneToken) return;
@@ -336,6 +368,7 @@ export function CloneFromGitModal({
 			if (result.valid) {
 				setValidateStatus("ok");
 				setValidateMessage(result.message);
+				await runVisibilityCheckWithToken(repoUrl, credentials.token.trim());
 			} else {
 				setValidateStatus("error");
 				setValidateMessage(result.message);
@@ -344,13 +377,15 @@ export function CloneFromGitModal({
 			setValidateStatus("error");
 			setValidateMessage("Validation request failed. Check your connection.");
 		}
-	}, [credentials]);
+	}, [credentials, repoUrl, runVisibilityCheckWithToken]);
 
 	// ── Handle close (Cancel button / X button / Escape) ──────────────────
 	const handleClose = useCallback(() => {
 		if (isCloning) return;
 		// SECURITY: Do NOT log credentials — clear on close
 		clearCredentials();
+		setIsDirExplorerOpen(false);
+		setDirCandidate(null);
 		onClose();
 	}, [isCloning, onClose, clearCredentials]);
 
@@ -370,22 +405,40 @@ export function CloneFromGitModal({
 			if (e.target === e.currentTarget && !isCloning) {
 				// SECURITY: Do NOT log credentials — clear on close
 				clearCredentials();
+				setIsDirExplorerOpen(false);
+				setDirCandidate(null);
 				onClose();
 			}
 		},
 		[isCloning, onClose, clearCredentials],
 	);
 
-	// ── Directory picker ───────────────────────────────────────────────────
-	const handleChooseDir = useCallback(async () => {
-		try {
-			const bridge = getBridge();
-			if (!bridge?.openFolderDialog) return;
-			const dir = await bridge.openFolderDialog();
-			if (dir) setSelectedDir(dir);
-		} catch {
-			// No-op — picker was cancelled or bridge unavailable
+	// ── In-app directory picker (FolderExplorer) ───────────────────────────
+	const handleOpenDirExplorer = useCallback(() => {
+		setDirCandidate(selectedDir);
+		setIsDirExplorerOpen(true);
+		setDirDialogFeedback(null);
+	}, [selectedDir]);
+
+	const handleCancelDirSelection = useCallback(() => {
+		setIsDirExplorerOpen(false);
+		setDirCandidate(selectedDir);
+		setDirDialogFeedback("Folder selection was cancelled.");
+	}, [selectedDir]);
+
+	const handleConfirmDirSelection = useCallback(() => {
+		if (!dirCandidate) {
+			setDirDialogFeedback("Select a folder in the explorer before confirming.");
+			return;
 		}
+		setSelectedDir(dirCandidate);
+		setIsDirExplorerOpen(false);
+		setDirDialogFeedback(null);
+	}, [dirCandidate]);
+
+	const handleDirExplorerSelect = useCallback((path: string) => {
+		setDirCandidate(path);
+		setDirDialogFeedback(null);
 	}, []);
 
 	// ── URL field change ───────────────────────────────────────────────────
@@ -406,6 +459,7 @@ export function CloneFromGitModal({
 				setCloneError(null);
 				setTechnicalDetails(null);
 			}
+			setDirDialogFeedback(null);
 		},
 		[phase, clearCredentials],
 	);
@@ -479,6 +533,13 @@ export function CloneFromGitModal({
 			e.preventDefault();
 			setUrlTouched(true);
 
+			if (isDirExplorerOpen) {
+				setDirDialogFeedback(
+					"Confirm or cancel folder selection before cloning.",
+				);
+				return;
+			}
+
 			let effectiveVisibilityResult = repoVisibility;
 			let effectiveProvider = provider;
 			if (urlValidation.valid && visibility === "idle") {
@@ -505,13 +566,30 @@ export function CloneFromGitModal({
 				) {
 					return;
 				}
+				if (validateStatus !== "ok") {
+					if (!validateMessage) {
+						setValidateMessage("Validate your token before cloning.");
+					}
+					return;
+				}
 			}
+
+			const freshCredentialsOk =
+				!freshCredentialsVisible ||
+				(
+					credentials.username.trim() !== "" &&
+					credentials.token.trim() !== "" &&
+					validateStatus === "ok"
+				);
 
 			const canCloneNow =
 				urlValidation.valid &&
+				effectiveProvider === "github" &&
 				selectedDir !== null &&
+				!isDirExplorerOpen &&
 				!isCloning &&
-				!freshButtonDisabled;
+				!freshButtonDisabled &&
+				freshCredentialsOk;
 
 			if (!canCloneNow || !selectedDir) return;
 
@@ -535,6 +613,8 @@ export function CloneFromGitModal({
 			setShowTechnicalDetails(false);
 			setProgressStage(null);
 			setProgressPercent(undefined);
+			setDirDialogFeedback(null);
+			setIsDirExplorerOpen(false);
 
 			try {
 				// SECURITY: Do NOT log credentials — pass in-memory only, never persist
@@ -580,7 +660,7 @@ export function CloneFromGitModal({
 				);
 			}
 		},
-		[canClone, selectedDir, repoUrl, repoName, repoVisibility, provider, urlValidation.valid, visibility, isCloning, runVisibilityCheck, credentials, credentialsVisible, clearCredentials],
+		[canClone, selectedDir, repoUrl, repoName, repoVisibility, provider, urlValidation.valid, visibility, isDirExplorerOpen, isCloning, runVisibilityCheck, credentials, credentialsVisible, validateStatus, validateMessage, clearCredentials],
 	);
 
 	// ── Render ─────────────────────────────────────────────────────────────
@@ -589,6 +669,8 @@ export function CloneFromGitModal({
 	/** Show URL format error only after the field has been touched and lost focus */
 	const showUrlError =
 		urlTouched && repoUrl.trim().length > 0 && !urlValidation.valid;
+	const canConfirmDirSelection =
+		!!dirCandidate && !isCloning && !isCheckingVisibility;
 
 	return (
 		<div
@@ -693,7 +775,8 @@ export function CloneFromGitModal({
 						</label>
 						<p className="form-field__hint">
 							The repository will be cloned into a subfolder inside the selected
-							location. Starts in your home directory ({getHomeDir()}).
+							location. Browse and choose a destination in-app (starts in your
+							home directory: {getHomeDir()}).
 						</p>
 
 						<div className="form-field__dir-row">
@@ -712,12 +795,61 @@ export function CloneFromGitModal({
 							<button
 								type="button"
 								className="btn btn--secondary form-field__dir-btn"
-								onClick={handleChooseDir}
+								onClick={handleOpenDirExplorer}
 						disabled={isCloning || isCheckingVisibility}
 							>
-								Choose Folder
+								{isDirExplorerOpen ? "Browsing…" : selectedDir ? "Change Folder" : "Choose Folder"}
 							</button>
 						</div>
+
+						{isDirExplorerOpen && (
+							<div
+								style={{
+									display: "flex",
+									flexDirection: "column",
+									gap: "0.75rem",
+									marginTop: "0.5rem",
+								}}
+							>
+								<FolderExplorer
+									initialPath={dirCandidate ?? selectedDir ?? getHomeDir()}
+									onSelect={handleDirExplorerSelect}
+									showFiles={false}
+									style={{ height: 240 }}
+								/>
+								<div
+									style={{
+										display: "flex",
+										alignItems: "center",
+										justifyContent: "space-between",
+										gap: "0.5rem",
+										flexWrap: "wrap",
+									}}
+								>
+									<span className="form-field__hint" aria-live="polite">
+										Current selection: <code>{dirCandidate ?? "None"}</code>
+									</span>
+									<div style={{ display: "flex", gap: "0.5rem" }}>
+										<button
+											type="button"
+												className="btn btn--ghost"
+												onClick={handleCancelDirSelection}
+												disabled={isCloning || isCheckingVisibility}
+											>
+												Cancel
+											</button>
+											<button
+												type="button"
+												className="btn btn--primary"
+												onClick={handleConfirmDirSelection}
+												disabled={!canConfirmDirSelection}
+											>
+												Use this folder
+											</button>
+										</div>
+									</div>
+							</div>
+						)}
 
 						{selectedDir && repoName && (
 							<p
@@ -728,6 +860,12 @@ export function CloneFromGitModal({
 								<code>
 									{selectedDir}/{repoName}
 								</code>
+							</p>
+						)}
+
+						{dirDialogFeedback && (
+							<p className="form-field__error" role="alert">
+								{dirDialogFeedback}
 							</p>
 						)}
 					</div>
@@ -766,15 +904,24 @@ export function CloneFromGitModal({
 										✓ {validateMessage}
 									</span>
 								)}
-								{validateStatus === "error" && validateMessage && (
-									<span className="form-field__error" role="alert">
-										{validateMessage}
-									</span>
-								)}
-							</div>
+							{validateStatus === "error" && validateMessage && (
+								<span className="form-field__error" role="alert">
+									{validateMessage}
+								</span>
+							)}
 						</div>
-					</>
-				)}
+						{validateStatus !== "ok" && validateStatus !== "validating" && (
+							<span
+								className="form-field__hint"
+								role="status"
+								style={{ color: "var(--color-warning, #f59e0b)" }}
+							>
+								⚠ Validate your token before cloning.
+							</span>
+						)}
+					</div>
+				</>
+			)}
 
 				{/* ── Clone status messages ──────────────────────────────── */}
 
