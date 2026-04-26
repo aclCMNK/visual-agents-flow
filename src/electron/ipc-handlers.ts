@@ -21,6 +21,7 @@ import { join, basename, dirname, extname } from "node:path";
 import {
 	readFile,
 	writeFile,
+	chmod,
 	mkdir,
 	rename,
 	rm,
@@ -114,6 +115,8 @@ import type {
 	CloneCancelResult,
 	CloneValidateRequest,
 	CloneValidateResult,
+	SaveGitCredentialsRequest,
+	SaveGitCredentialsResult,
 	GitHubFetchRequest,
 	GitHubFetchResult,
 } from "./bridge.types.ts";
@@ -194,6 +197,104 @@ const MAX_CONCURRENT_CLONES = 3;
  */
 function sanitizeCredentials(text: string): string {
 	return text.replace(/https?:\/\/[^:@\s]+:[^@\s]+@/g, "https://[REDACTED]@");
+}
+
+/**
+ * Ensures that ".env" appears as its own line in the .gitignore file.
+ * Creates .gitignore if it does not exist and appends ".env" if missing.
+ */
+async function ensureEnvInGitignore(gitignorePath: string): Promise<void> {
+	let content = "";
+
+	if (existsSync(gitignorePath)) {
+		content = await readFile(gitignorePath, "utf-8");
+	}
+
+	const lines = content.split(/\r?\n/);
+	const alreadyListed = lines.some((line) => line.trim() === ".env");
+
+	if (!alreadyListed) {
+		const separator = content.length > 0 && !content.endsWith("\n") ? "\n" : "";
+		await writeFile(gitignorePath, `${content}${separator}.env\n`, {
+			encoding: "utf-8",
+			flag: "w",
+		});
+	}
+}
+
+/**
+ * Writes GIT_USERNAME and GIT_TOKEN to <projectDir>/.env (overwrite)
+ * and ensures .env is listed in <projectDir>/.gitignore.
+ */
+async function saveGitCredentialsToEnv(
+	projectDir: string,
+	username: string,
+	token: string,
+): Promise<SaveGitCredentialsResult> {
+	if (!username.trim() || !token.trim()) {
+		return {
+			success: false,
+			errorCode: "EMPTY_CREDS",
+			error: "Username and token must not be empty.",
+		};
+	}
+
+	if (!existsSync(projectDir)) {
+		return {
+			success: false,
+			errorCode: "INVALID_DIR",
+			error: `Project directory does not exist: ${projectDir}`,
+		};
+	}
+
+	try {
+		const projectDirStat = await stat(projectDir);
+		if (!projectDirStat.isDirectory()) {
+			return {
+				success: false,
+				errorCode: "INVALID_DIR",
+				error: `Project path is not a directory: ${projectDir}`,
+			};
+		}
+	} catch (err) {
+		return {
+			success: false,
+			errorCode: "INVALID_DIR",
+			error: err instanceof Error ? err.message : String(err),
+		};
+	}
+
+	const envPath = join(projectDir, ".env");
+	const gitignorePath = join(projectDir, ".gitignore");
+
+	try {
+		const envContent = `GIT_USERNAME=${username}\nGIT_TOKEN=${token}\n`;
+		await writeFile(envPath, envContent, { encoding: "utf-8", flag: "w" });
+
+		try {
+			await chmod(envPath, 0o600);
+		} catch {
+			// Non-fatal on Windows
+		}
+
+		try {
+			await ensureEnvInGitignore(gitignorePath);
+		} catch (err) {
+			console.warn(
+				"[git-credentials] Could not update .gitignore —",
+				err instanceof Error ? err.message : String(err),
+			);
+		}
+
+		console.log(
+			`[git-credentials] .env written → ${envPath} (token length: ${token.length})`,
+		);
+		return { success: true, envPath };
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		console.error("[git-credentials] Failed to write credentials —", message);
+		return { success: false, errorCode: "IO_ERROR", error: message };
+	}
 }
 
 /**
@@ -3022,6 +3123,35 @@ export function registerIpcHandlers(): void {
 
 				request.end();
 			});
+		},
+	);
+
+	ipcMain.handle(
+		IPC_CHANNELS.GIT_SAVE_CREDENTIALS,
+		async (
+			_event,
+			req: SaveGitCredentialsRequest,
+		): Promise<SaveGitCredentialsResult> => {
+			// SECURITY: never log token value
+			console.log(
+				`[ipc] GIT_SAVE_CREDENTIALS: projectDir=${req.projectDir} username=${req.username}`,
+			);
+
+			const result = await saveGitCredentialsToEnv(
+				req.projectDir,
+				req.username,
+				req.token,
+			);
+
+			if (!result.success) {
+				console.error(
+					"[ipc] GIT_SAVE_CREDENTIALS: failed —",
+					result.errorCode,
+					result.error,
+				);
+			}
+
+			return result;
 		},
 	);
 }

@@ -452,6 +452,13 @@ export const IPC_CHANNELS = {
 	// SECURITY: token is used only for the API call — never logged or persisted.
 	GIT_CLONE_VALIDATE: "git:clone:validate",
 
+	// ── Git Save Credentials channel ────────────────────────────────────────────
+	//
+	// Writes GIT_USERNAME and GIT_TOKEN into <projectDir>/.env (overwrite) and
+	// ensures .env is listed in <projectDir>/.gitignore.
+	// SECURITY: token must never be logged or persisted elsewhere.
+	GIT_SAVE_CREDENTIALS: "git:save-credentials",
+
 	// ── Asset move channel ─────────────────────────────────────────────────────
 	//
 	// Moves a file or directory to a new parent directory.
@@ -1789,6 +1796,35 @@ export interface CloneValidateResult {
 		| "UNKNOWN";
 }
 
+/**
+ * Request payload for the GIT_SAVE_CREDENTIALS channel.
+ */
+export interface SaveGitCredentialsRequest {
+	/** Absolute path to the cloned project root */
+	projectDir: string;
+	/** GitHub username */
+	username: string;
+	/** GitHub Personal Access Token — NEVER log this value */
+	token: string;
+}
+
+/**
+ * Result returned by the GIT_SAVE_CREDENTIALS channel.
+ */
+export interface SaveGitCredentialsResult {
+	success: boolean;
+	/** Absolute path to the written .env file (on success) */
+	envPath?: string;
+	/** Human-readable error message (on failure) */
+	error?: string;
+	/**
+	 * "IO_ERROR"     — filesystem write failed
+	 * "INVALID_DIR"  — projectDir does not exist or is not a directory
+	 * "EMPTY_CREDS"  — username or token is empty
+	 */
+	errorCode?: "IO_ERROR" | "INVALID_DIR" | "EMPTY_CREDS";
+}
+
 export interface AgentsFlowBridge {
 	/**
 	 * Opens a native folder picker dialog.
@@ -2259,6 +2295,16 @@ export interface AgentsFlowBridge {
 	 * SECURITY: token is used only for the API call — never logged or persisted.
 	 */
 	validateCloneToken(req: CloneValidateRequest): Promise<CloneValidateResult>;
+
+	/**
+	 * Saves Git credentials in <projectDir>/.env and ensures .env is listed in
+	 * <projectDir>/.gitignore.
+	 *
+	 * SECURITY: the token must never be logged or persisted outside .env.
+	 */
+	saveGitCredentials(
+		req: SaveGitCredentialsRequest,
+	): Promise<SaveGitCredentialsResult>;
 
 	/**
 	 * Registers a callback invoked whenever the main process emits a

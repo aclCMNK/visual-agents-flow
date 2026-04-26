@@ -107,6 +107,7 @@ import type {
 	CloneRepositoryRequest,
 	CloneCancelRequest,
 	CloneValidateRequest,
+	SaveGitCredentialsRequest,
 	CloneProgressEvent,
 	GitHubFetchRequest,
 	// ── Folder Explorer ───────────────────────────────────────────────────────
@@ -450,6 +451,10 @@ const bridge: AgentsFlowBridge = {
 
 	validateCloneToken(req: CloneValidateRequest) {
 		return ipcRenderer.invoke(IPC_CHANNELS.GIT_CLONE_VALIDATE, req);
+	},
+
+	saveGitCredentials(req: SaveGitCredentialsRequest) {
+		return ipcRenderer.invoke(IPC_CHANNELS.GIT_SAVE_CREDENTIALS, req);
 	},
 
 	onCloneProgress(callback: (event: CloneProgressEvent) => void) {

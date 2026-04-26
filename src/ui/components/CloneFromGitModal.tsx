@@ -91,6 +91,7 @@ function getBridge() {
 					}) => Promise<CloneRepositoryResult>;
 					cancelClone?: (req: { cloneId: string }) => Promise<{ sent: boolean; message: string }>;
 					validateCloneToken?: (req: { token: string; username?: string }) => Promise<{ valid: boolean; status?: number; message: string; errorCode?: string }>;
+					saveGitCredentials?: (req: { projectDir: string; username: string; token: string }) => Promise<{ success: boolean; envPath?: string; error?: string; errorCode?: "IO_ERROR" | "INVALID_DIR" | "EMPTY_CREDS" }>;
 					onCloneProgress?: (callback: (event: CloneProgressEvent) => void) => void;
 					offCloneProgress?: () => void;
 				};
@@ -558,11 +559,18 @@ export function CloneFromGitModal({
 				effectiveProvider === "github" &&
 				(effectiveVisibilityResult === "private" || effectiveVisibilityResult === "not_found");
 
+			const trimmedUsername = credentials.username.trim();
+			const trimmedToken = credentials.token.trim();
+			const hasValidCredentials =
+				trimmedUsername !== "" &&
+				trimmedToken !== "" &&
+				validateStatus === "ok";
+
 			if (freshCredentialsVisible) {
 				setCredentialsTouched(true);
 				if (
-					credentials.username.trim() === "" ||
-					credentials.token.trim() === ""
+					trimmedUsername === "" ||
+					trimmedToken === ""
 				) {
 					return;
 				}
@@ -576,11 +584,7 @@ export function CloneFromGitModal({
 
 			const freshCredentialsOk =
 				!freshCredentialsVisible ||
-				(
-					credentials.username.trim() !== "" &&
-					credentials.token.trim() !== "" &&
-					validateStatus === "ok"
-				);
+				hasValidCredentials;
 
 			const canCloneNow =
 				urlValidation.valid &&
@@ -630,22 +634,46 @@ export function CloneFromGitModal({
 					repoName: repoName || undefined,
 					cloneId: newCloneId,
 				};
-				if (freshCredentialsVisible) {
+				if (hasValidCredentials) {
 					cloneRequest.auth = {
-						username: credentials.username.trim(),
-						token: credentials.token.trim(),
+						username: trimmedUsername,
+						token: trimmedToken,
 					};
 				}
 
 				const result = await bridge.cloneRepository(cloneRequest);
 
-				// SECURITY: Clear credentials immediately after the request
-				clearCredentials();
-
 				if (result.success && result.clonedPath) {
+					if (hasValidCredentials && bridge.saveGitCredentials) {
+						const saveResult = await bridge.saveGitCredentials({
+							projectDir: result.clonedPath,
+							username: trimmedUsername,
+							token: trimmedToken,
+						});
+
+						if (!saveResult.success) {
+							console.warn(
+								"[clone-flow] Could not save credentials to .env:",
+								saveResult.error,
+							);
+						}
+					} else if (hasValidCredentials && !bridge.saveGitCredentials) {
+						console.warn(
+							"[clone-flow] saveGitCredentials not available on bridge — .env not written",
+						);
+					} else {
+						console.log(
+							"[clone-flow] No credentials to save (public repo or credentials not validated)",
+						);
+					}
+
+					// SECURITY: Clear credentials immediately after save attempt
+					clearCredentials();
 					setPhase("success");
 					setClonedPath(result.clonedPath);
 				} else {
+					// SECURITY: Clear credentials immediately after clone failure
+					clearCredentials();
 					setPhase("error");
 					setCloneError(getUxErrorMessage(result.errorCode, result.error));
 					if (result.technicalDetails) {
