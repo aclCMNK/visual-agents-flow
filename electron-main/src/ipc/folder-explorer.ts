@@ -52,7 +52,7 @@
  *   This file only orchestrates: validate → I/O → filter → respond.
  */
 
-import { readdir, stat } from "node:fs/promises";
+import { mkdir, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { IpcMain } from "electron";
 
@@ -109,6 +109,8 @@ export type FolderExplorerErrorCode =
   | "E_NOT_FOUND"      // Path does not exist
   | "E_NOT_A_DIR"      // Path exists but is a file, not a directory
   | "E_ACCESS_DENIED"  // EACCES / EPERM when accessing the path
+  | "E_ALREADY_EXISTS" // Tried to create a dir that already exists
+  | "E_INVALID_NAME"   // Invalid directory name for mkdir
   | "E_UNKNOWN";       // Unexpected error (message included)
 
 /** Envelope for IPC errors — always serialisable. */
@@ -147,6 +149,13 @@ export interface ReadChildrenResult {
   results: Record<string, ListResult | FolderExplorerError>;
 }
 
+/** Successful response from `folder-explorer:mkdir`. */
+export interface MkdirResult {
+  ok: true;
+  /** Absolute path of the created directory (inside HOME_ROOT). */
+  createdPath: string;
+}
+
 /** Union of all possible responses from `folder-explorer:list`. */
 export type ListResponse = ListResult | FolderExplorerError;
 
@@ -155,6 +164,9 @@ export type StatResponse = StatResult | FolderExplorerError;
 
 /** Union of all possible responses from `folder-explorer:read-children`. */
 export type ReadChildrenResponse = ReadChildrenResult | FolderExplorerError;
+
+/** Union of all possible responses from `folder-explorer:mkdir`. */
+export type MkdirResponse = MkdirResult | FolderExplorerError;
 
 // ── IPC Channel Names ──────────────────────────────────────────────────────
 
@@ -171,6 +183,7 @@ export const FOLDER_EXPLORER_CHANNELS = {
   LIST:          "folder-explorer:list",
   STAT:          "folder-explorer:stat",
   READ_CHILDREN: "folder-explorer:read-children",
+  MKDIR:         "folder-explorer:mkdir",
 } as const;
 
 // ── Internal helpers ───────────────────────────────────────────────────────
@@ -238,6 +251,32 @@ function classifyError(err: unknown): FolderExplorerError {
     code: "E_UNKNOWN",
     message: `Unexpected non-Error thrown: ${String(err)}`,
   };
+}
+
+/**
+ * Validates a directory name for mkdir operations.
+ * Returns null if valid, otherwise an error message.
+ */
+function validateDirName(name: string): string | null {
+  if (!name || name.trim() === "") {
+    return "Directory name cannot be empty.";
+  }
+  if (name.length > 255) {
+    return "Directory name cannot exceed 255 characters.";
+  }
+  if (name === "." || name === "..") {
+    return `"${name}" is not a valid directory name.`;
+  }
+  if (name.includes("/") || name.includes("\\")) {
+    return "Directory name cannot contain path separators (/ or \\).";
+  }
+  if (/[\x00-\x1F\x7F]/.test(name)) {
+    return "Directory name cannot contain control characters.";
+  }
+  if (/[<>:"|?*]/.test(name)) {
+    return "Directory name cannot contain: < > : \" | ? *";
+  }
+  return null;
 }
 
 /**
@@ -613,6 +652,83 @@ async function handleReadChildren(
   return { ok: true, results };
 }
 
+/**
+ * `folder-explorer:mkdir`
+ *
+ * Creates a new directory named `name` inside `parentPath`.
+ */
+async function handleMkdir(
+  _event: Electron.IpcMainInvokeEvent,
+  payload: { parentPath: string; name: string },
+): Promise<MkdirResponse> {
+  if (
+    typeof payload !== "object" ||
+    payload === null ||
+    typeof payload.parentPath !== "string" ||
+    typeof payload.name !== "string"
+  ) {
+    return {
+      ok: false,
+      code: "E_UNKNOWN",
+      message: "Invalid payload: expected { parentPath: string; name: string }.",
+    };
+  }
+
+  const { parentPath, name } = payload;
+
+  const nameError = validateDirName(name);
+  if (nameError) {
+    return { ok: false, code: "E_INVALID_NAME", message: nameError };
+  }
+
+  let safeParent: string;
+  try {
+    safeParent = await resolveWithinHome(parentPath);
+  } catch (err) {
+    return classifyError(err);
+  }
+
+  let parentStat: Awaited<ReturnType<typeof stat>>;
+  try {
+    parentStat = await stat(safeParent);
+  } catch (err) {
+    return classifyError(err);
+  }
+
+  if (!parentStat.isDirectory()) {
+    return {
+      ok: false,
+      code: "E_NOT_A_DIR",
+      message: `"${safeParent}" is not a directory.`,
+    };
+  }
+
+  const newDirPath = join(safeParent, name);
+
+  try {
+    await mkdir(newDirPath, { recursive: false });
+  } catch (err) {
+    const nodeCode = (err as NodeJS.ErrnoException).code ?? "";
+    if (nodeCode === "EEXIST") {
+      return {
+        ok: false,
+        code: "E_ALREADY_EXISTS",
+        message: `A directory named "${name}" already exists in this location.`,
+      };
+    }
+    if (nodeCode === "EACCES" || nodeCode === "EPERM") {
+      return {
+        ok: false,
+        code: "E_ACCESS_DENIED",
+        message: `Permission denied: cannot create directory "${name}" here.`,
+      };
+    }
+    return classifyError(err);
+  }
+
+  return { ok: true, createdPath: newDirPath };
+}
+
 // ── Registration ───────────────────────────────────────────────────────────
 
 /**
@@ -642,6 +758,7 @@ export function registerFolderExplorerHandlers(ipcMain: IpcMain): void {
   ipcMain.handle(FOLDER_EXPLORER_CHANNELS.LIST,          handleList);
   ipcMain.handle(FOLDER_EXPLORER_CHANNELS.STAT,          handleStat);
   ipcMain.handle(FOLDER_EXPLORER_CHANNELS.READ_CHILDREN, handleReadChildren);
+  ipcMain.handle(FOLDER_EXPLORER_CHANNELS.MKDIR,         handleMkdir);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -69,6 +69,7 @@ import type {
   ListResponse,
   StatResponse,
   ReadChildrenResponse,
+  MkdirResponse,
 } from "../ipc/folder-explorer.ts";
 import type { FilterOptions } from "../fs/filter.ts";
 
@@ -124,6 +125,11 @@ export interface FolderExplorerBridge {
     paths: string[],
     options?: FilterOptions,
   ): Promise<ReadChildrenResponse>;
+
+  /**
+   * Creates a new directory named `name` inside `parentPath`.
+   */
+  mkdir(parentPath: string, name: string): Promise<MkdirResponse>;
 }
 
 // ── Implementación del bridge ───────────────────────────────────────────────
@@ -162,6 +168,13 @@ const folderExplorerBridge: FolderExplorerBridge = {
       { paths, options },
     ) as Promise<ReadChildrenResponse>;
   },
+
+  mkdir(parentPath: string, name: string): Promise<MkdirResponse> {
+    return ipcRenderer.invoke(
+      FOLDER_EXPLORER_CHANNELS.MKDIR,
+      { parentPath, name },
+    ) as Promise<MkdirResponse>;
+  },
 };
 
 // ── Exposición segura en window.folderExplorer ─────────────────────────────
@@ -169,7 +182,7 @@ const folderExplorerBridge: FolderExplorerBridge = {
 contextBridge.exposeInMainWorld("folderExplorer", folderExplorerBridge);
 
 console.log(
-  "[preload/folder-explorer] window.folderExplorer expuesto — 3 canales IPC activos",
+  "[preload/folder-explorer] window.folderExplorer expuesto — 4 canales IPC activos",
 );
 
 // ── Augmentación global de tipos ────────────────────────────────────────────

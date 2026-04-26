@@ -153,6 +153,8 @@ export type IpcErrorCode =
   | "E_NOT_FOUND"     // Path does not exist on disk
   | "E_NOT_A_DIR"     // Path exists but is a file, not a directory
   | "E_ACCESS_DENIED" // EACCES / EPERM
+  | "E_ALREADY_EXISTS" // Target directory already exists
+  | "E_INVALID_NAME"   // Invalid directory name for mkdir
   | "E_UNKNOWN"       // Unexpected error from main process
   | "E_TIMEOUT"       // IPC call timed out after TIMEOUT_MS
   | "E_BRIDGE";       // window.folderExplorer not available
@@ -231,6 +233,22 @@ export interface ReadChildrenErr {
 /** Return type of `readChildren`. */
 export type ReadChildrenResult = ReadChildrenOk | ReadChildrenErr;
 
+/** Successful result from `createDirectory`. */
+export interface CreateDirectoryOk {
+  ok: true;
+  /** Absolute path of the newly created directory. */
+  createdPath: string;
+}
+
+/** Failure result from `createDirectory`. */
+export interface CreateDirectoryErr {
+  ok: false;
+  error: IpcError;
+}
+
+/** Return type of `createDirectory`. */
+export type CreateDirectoryResult = CreateDirectoryOk | CreateDirectoryErr;
+
 // ── Internal bridge types ─────────────────────────────────────────────────────
 // These types mirror the shapes returned by the main-process IPC handlers
 // (electron-main/src/ipc/folder-explorer.ts). They are declared here as private
@@ -281,12 +299,14 @@ interface _BridgeErr {
 type _BridgeListResponse        = _BridgeListOk        | _BridgeErr;
 type _BridgeStatResponse        = _BridgeStatOk        | _BridgeErr;
 type _BridgeReadChildrenResponse = _BridgeReadChildrenOk | _BridgeErr;
+type _BridgeMkdirResponse = { ok: true; createdPath: string } | _BridgeErr;
 
 /** Minimal typed view of window.folderExplorer as seen by the renderer. */
 interface _FolderExplorerBridge {
   list(path: string, options?: FilterOptions): Promise<_BridgeListResponse>;
   stat(path: string): Promise<_BridgeStatResponse>;
   readChildren(paths: string[], options?: FilterOptions): Promise<_BridgeReadChildrenResponse>;
+  mkdir(parentPath: string, name: string): Promise<_BridgeMkdirResponse>;
 }
 
 // Augment Window so TypeScript resolves window.folderExplorer inside this module.
@@ -564,6 +584,44 @@ export async function readChildren(
       error: {
         kind:    "ipc",
         code:    "E_UNKNOWN",
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
+
+/**
+ * Creates a new directory named `name` inside `parentPath`.
+ *
+ * The main process validates sandbox and name rules.
+ */
+export async function createDirectory(
+  parentPath: string,
+  name: string,
+): Promise<CreateDirectoryResult> {
+  if (!hasBridge()) {
+    return { ok: false, error: bridgeError() };
+  }
+
+  try {
+    const raw = await callWithTimeout(
+      getBridge()!.mkdir(parentPath, name),
+    );
+
+    if (raw.ok) {
+      return { ok: true, createdPath: raw.createdPath };
+    }
+
+    return { ok: false, error: normaliseBridgeError(raw) };
+  } catch (err) {
+    if (err === TIMEOUT_SENTINEL) {
+      return { ok: false, error: timeoutError() };
+    }
+    return {
+      ok: false,
+      error: {
+        kind: "ipc",
+        code: "E_UNKNOWN",
         message: err instanceof Error ? err.message : String(err),
       },
     };

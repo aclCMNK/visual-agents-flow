@@ -125,6 +125,7 @@ import React, {
   useEffect,
   useId,
   useRef,
+  useState,
   type CSSProperties,
   type KeyboardEvent,
 } from "react";
@@ -175,6 +176,11 @@ export interface FolderExplorerProps {
    * Additional `className` applied to the root container.
    */
   className?: string;
+
+  /**
+   * If true (default), enables inline new-directory creation UI in the toolbar.
+   */
+  allowCreateDir?: boolean;
 }
 
 // ── Icon helpers ─────────────────────────────────────────────────────────────
@@ -272,6 +278,77 @@ function IconRefresh({ className }: { className?: string }) {
   );
 }
 
+function IconNewFolder({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      width="14"
+      height="14"
+      viewBox="0 0 14 14"
+      fill="none"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        d="M1 3.5C1 2.948 1.448 2.5 2 2.5H5.086a1 1 0 0 1 .707.293L6.5 3.5H12A1 1 0 0 1 13 4.5v7a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1v-8Z"
+        fill="currentColor"
+        opacity="0.7"
+      />
+      <line x1="7" y1="5.5" x2="7" y2="9.5" stroke="white" strokeWidth="1.3" strokeLinecap="round" />
+      <line x1="5" y1="7.5" x2="9" y2="7.5" stroke="white" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconCheck({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      fill="none"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        d="M2 6l3 3 5-5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function IconX({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      fill="none"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        d="M2 2l8 8M10 2l-8 8"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function IconSpinner({ className }: { className?: string }) {
+  return (
+    <span className={`${styles.mkdirSpinner}${className ? ` ${className}` : ""}`} aria-hidden="true" />
+  );
+}
+
 // ── Sort helper ──────────────────────────────────────────────────────────────
 // Directories always appear before files; within each group, sort alphabetically.
 
@@ -293,16 +370,24 @@ export function FolderExplorer({
   showFiles = false,
   style,
   className,
+  allowCreateDir = true,
 }: FolderExplorerProps) {
   const uid = useId(); // unique prefix for ARIA IDs
   const listboxId = `${uid}-listbox`;
   const listRef = useRef<HTMLUListElement>(null);
+  const mkdirButtonRef = useRef<HTMLButtonElement>(null);
+  const newDirInputRef = useRef<HTMLInputElement>(null);
+
+  const [mkdirMode, setMkdirMode] = useState(false);
+  const [newDirName, setNewDirName] = useState("");
+  const [nameError, setNameError] = useState<string | null>(null);
 
   const {
     cwd,
     breadcrumbs,
     entries,
     loading,
+    creating,
     error,
     selected,
     showHidden,
@@ -314,12 +399,70 @@ export function FolderExplorer({
     clearSelection,
     setShowHidden,
     clearError,
+    createDir,
   } = useFolderExplorer({
     initialPath,
     extraFilterOptions: { directoriesOnly: !showFiles },
   });
 
   const sortedEntries = sortEntries(entries);
+
+  const validateNameClientSide = useCallback((name: string): string | null => {
+    if (!name || name.trim() === "") return "Name cannot be empty.";
+    if (name.length > 255) return "Name too long (max 255 chars).";
+    if (name === "." || name === "..") return `"${name}" is not a valid name.`;
+    if (name.includes("/") || name.includes("\\")) return "Name cannot contain / or \\.";
+    if (/[\x00-\x1F\x7F]/.test(name)) return "Name cannot contain control characters.";
+    if (/[<>:"|?*]/.test(name)) return "Name cannot contain: < > : \" | ? *";
+    return null;
+  }, []);
+
+  const handleOpenMkdir = useCallback(() => {
+    setMkdirMode(true);
+    setNewDirName("");
+    setNameError(null);
+    requestAnimationFrame(() => newDirInputRef.current?.focus());
+  }, []);
+
+  const handleCancelMkdir = useCallback(() => {
+    if (creating) return;
+    setMkdirMode(false);
+    setNewDirName("");
+    setNameError(null);
+    requestAnimationFrame(() => mkdirButtonRef.current?.focus());
+  }, [creating]);
+
+  const handleConfirmMkdir = useCallback(async () => {
+    const trimmed = newDirName.trim();
+    const clientError = validateNameClientSide(trimmed);
+    if (clientError) {
+      setNameError(clientError);
+      newDirInputRef.current?.focus();
+      return;
+    }
+
+    setNameError(null);
+    const success = await createDir(trimmed);
+
+    if (success) {
+      setMkdirMode(false);
+      setNewDirName("");
+      requestAnimationFrame(() => mkdirButtonRef.current?.focus());
+    }
+  }, [newDirName, validateNameClientSide, createDir]);
+
+  const handleMkdirInputKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        void handleConfirmMkdir();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        handleCancelMkdir();
+      }
+    },
+    [handleConfirmMkdir, handleCancelMkdir],
+  );
 
   // ── Keyboard navigation ──────────────────────────────────────────────────
 
@@ -451,12 +594,85 @@ export function FolderExplorer({
           type="button"
           className={`${styles.reloadButton}${loading ? ` ${styles.spinning}` : ""}`}
           onClick={reload}
-          disabled={!cwd || loading}
+          disabled={!cwd || loading || creating}
           aria-label="Reload current folder"
           title="Reload"
         >
           <IconRefresh />
         </button>
+
+        {allowCreateDir && (
+          <>
+            {!mkdirMode ? (
+              <button
+                ref={mkdirButtonRef}
+                type="button"
+                className={styles.mkdirButton}
+                onClick={handleOpenMkdir}
+                disabled={!cwd || loading || creating}
+                aria-label="Create new directory"
+                title="New folder"
+              >
+                <IconNewFolder />
+              </button>
+            ) : (
+              <div className={styles.mkdirInline} role="group" aria-label="New directory name">
+                <input
+                  ref={newDirInputRef}
+                  type="text"
+                  className={`${styles.mkdirInput}${nameError ? ` ${styles.mkdirInputError}` : ""}`}
+                  value={newDirName}
+                  onChange={(e) => {
+                    setNewDirName(e.target.value);
+                    if (nameError) setNameError(null);
+                  }}
+                  onKeyDown={handleMkdirInputKeyDown}
+                  placeholder="New folder name…"
+                  aria-label="New directory name"
+                  aria-invalid={!!nameError}
+                  aria-describedby={nameError ? `${uid}-mkdir-error` : undefined}
+                  maxLength={255}
+                  disabled={creating}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+
+                {nameError && (
+                  <span
+                    id={`${uid}-mkdir-error`}
+                    className={styles.mkdirNameError}
+                    role="alert"
+                    aria-live="assertive"
+                  >
+                    {nameError}
+                  </span>
+                )}
+
+                <button
+                  type="button"
+                  className={styles.mkdirConfirm}
+                  onClick={() => void handleConfirmMkdir()}
+                  disabled={creating || !newDirName.trim()}
+                  aria-label="Confirm create directory"
+                  title="Create"
+                >
+                  {creating ? <IconSpinner /> : <IconCheck />}
+                </button>
+
+                <button
+                  type="button"
+                  className={styles.mkdirCancel}
+                  onClick={handleCancelMkdir}
+                  disabled={creating}
+                  aria-label="Cancel create directory"
+                  title="Cancel"
+                >
+                  <IconX />
+                </button>
+              </div>
+            )}
+          </>
+        )}
 
         {/* Breadcrumb nav */}
         <nav

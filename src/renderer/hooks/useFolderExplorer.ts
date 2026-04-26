@@ -89,6 +89,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import {
   listFolder,
+  createDirectory,
   type Entry,
   type IpcError,
   type FilterOptions,
@@ -178,6 +179,9 @@ export interface FolderExplorerHandle {
   /** Whether hidden (dot-prefixed) entries are shown. */
   showHidden: boolean;
 
+  /** True while a create-directory operation is in flight. */
+  creating: boolean;
+
   // ── Navigation methods ──────────────────────────────────────────────────
 
   /**
@@ -260,6 +264,9 @@ export interface FolderExplorerHandle {
    * Does not retry the failed operation.
    */
   clearError: () => void;
+
+  /** Creates a new directory inside the current cwd and reloads on success. */
+  createDir: (name: string) => Promise<boolean>;
 }
 
 // ── Breadcrumb builder ────────────────────────────────────────────────────────
@@ -335,6 +342,7 @@ export function useFolderExplorer(
   const [error,      setError]      = useState<IpcError | null>(null);
   const [selected,   setSelected]   = useState<ReadonlySet<string>>(new Set());
   const [showHidden, setShowHiddenState] = useState<boolean>(initialShowHidden);
+  const [creating,   setCreating]   = useState<boolean>(false);
 
   // Stable ref for the onError callback — avoids stale closures in navigate.
   const onErrorRef = useRef<((err: IpcError) => void) | undefined>(onError);
@@ -460,6 +468,29 @@ export function useFolderExplorer(
     setError(null);
   }, []);
 
+  const createDir = useCallback(
+    async (name: string): Promise<boolean> => {
+      if (!cwd) return false;
+
+      setCreating(true);
+      setError(null);
+
+      const result = await createDirectory(cwd, name);
+
+      setCreating(false);
+
+      if (!result.ok) {
+        setError(result.error);
+        onErrorRef.current?.(result.error);
+        return false;
+      }
+
+      await navigateInternal(cwd, showHidden);
+      return true;
+    },
+    [cwd, showHidden, navigateInternal],
+  );
+
   // ── Return ────────────────────────────────────────────────────────────────
 
   return {
@@ -471,6 +502,7 @@ export function useFolderExplorer(
     error,
     selected,
     showHidden,
+    creating,
     // Navigation
     navigate,
     open,
@@ -484,5 +516,6 @@ export function useFolderExplorer(
     setShowHidden,
     // Error
     clearError,
+    createDir,
   };
 }

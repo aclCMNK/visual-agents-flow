@@ -55,7 +55,9 @@ export type {
   ListResult,
   StatResult,
   ReadChildrenResult,
+  MkdirResult,
   ListResponse,
   StatResponse,
   ReadChildrenResponse,
+  MkdirResponse,
 } from "./folder-explorer.ts";

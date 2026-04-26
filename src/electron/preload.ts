@@ -541,6 +541,10 @@ contextBridge.exposeInMainWorld("folderExplorer", {
 			options,
 		});
 	},
+
+	mkdir(parentPath: string, name: string) {
+		return ipcRenderer.invoke("folder-explorer:mkdir", { parentPath, name });
+	},
 });
 
 console.log(

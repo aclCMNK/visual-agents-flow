@@ -426,3 +426,163 @@
 .entryNameFile {
   color: var(--color-text-muted, #7b7f9e);
 }
+
+/* ── New Directory button ────────────────────────────────────────────────── */
+
+.mkdirButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: var(--radius-sm, 4px);
+  border: 1px solid var(--color-border, #2e3147);
+  background: transparent;
+  color: var(--color-primary, #6366f1);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--transition, 150ms ease),
+              border-color var(--transition, 150ms ease);
+}
+
+.mkdirButton:hover:not(:disabled) {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: var(--color-primary, #6366f1);
+}
+
+.mkdirButton:focus-visible {
+  outline: 2px solid var(--color-primary, #6366f1);
+  outline-offset: 2px;
+}
+
+.mkdirButton:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* ── Inline mkdir form ───────────────────────────────────────────────────── */
+
+.mkdirInline {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
+.mkdirInput {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm, 4px);
+  border: 1px solid var(--color-primary, #6366f1);
+  background: var(--color-surface, #1a1d27);
+  color: var(--color-text, #e2e4ef);
+  font-size: 12px;
+  font-family: var(--font-sans, sans-serif);
+  outline: none;
+  transition: border-color var(--transition, 150ms ease),
+              box-shadow var(--transition, 150ms ease);
+}
+
+.mkdirInput:focus {
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
+}
+
+.mkdirInput:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.mkdirInputError {
+  border-color: var(--color-error, #f87171) !important;
+  box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.2) !important;
+}
+
+.mkdirNameError {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--color-surface-2, #232637);
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  border-radius: var(--radius-sm, 4px);
+  color: var(--color-error, #f87171);
+  font-size: 11px;
+  padding: 4px 8px;
+  z-index: 10;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Confirm / Cancel buttons ────────────────────────────────────────────── */
+
+.mkdirConfirm,
+.mkdirCancel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: var(--radius-sm, 4px);
+  border: 1px solid var(--color-border, #2e3147);
+  background: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--transition, 150ms ease),
+              border-color var(--transition, 150ms ease);
+}
+
+.mkdirConfirm {
+  color: var(--color-success, #4ade80);
+  border-color: rgba(74, 222, 128, 0.3);
+}
+
+.mkdirConfirm:hover:not(:disabled) {
+  background: rgba(74, 222, 128, 0.1);
+  border-color: var(--color-success, #4ade80);
+}
+
+.mkdirConfirm:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.mkdirCancel {
+  color: var(--color-text-muted, #7b7f9e);
+}
+
+.mkdirCancel:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.1);
+  border-color: rgba(248, 113, 113, 0.4);
+  color: var(--color-error, #f87171);
+}
+
+.mkdirCancel:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.mkdirConfirm:focus-visible,
+.mkdirCancel:focus-visible {
+  outline: 2px solid var(--color-primary, #6366f1);
+  outline-offset: 2px;
+}
+
+/* ── Spinner para estado "creating" ──────────────────────────────────────── */
+
+.mkdirSpinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid rgba(74, 222, 128, 0.3);
+  border-top-color: var(--color-success, #4ade80);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
