@@ -4,6 +4,11 @@ import type {
 	GitCommit,
 	GitOperationError,
 } from "../../electron/bridge.types.ts";
+import {
+	formatGitError,
+	type UiGitError,
+	toUiGitError,
+} from "../utils/gitErrorUtils.ts";
 
 interface GitBranchesState {
 	currentBranch: string;
@@ -24,13 +29,13 @@ interface GitBranchesState {
 	isLoadingCommits: boolean;
 	isCreatingBranch: boolean;
 
-	branchesError: string | null;
-	remoteDiffError: string | null;
-	fetchPullError: string | null;
-	pullBranchError: string | null;
-	checkoutError: string | null;
-	commitsError: string | null;
-	createBranchError: string | null;
+	branchesError: UiGitError | null;
+	remoteDiffError: UiGitError | null;
+	fetchPullError: UiGitError | null;
+	pullBranchError: UiGitError | null;
+	checkoutError: UiGitError | null;
+	commitsError: UiGitError | null;
+	createBranchError: UiGitError | null;
 
 	lastFetchPullSuccess: string | null;
 	lastCheckoutSuccess: string | null;
@@ -44,7 +49,7 @@ type GitBranchesAction =
 			branches: GitBranch[];
 			currentBranch: string;
 	  }
-	| { type: "LOAD_BRANCHES_ERROR"; error: string }
+	| { type: "LOAD_BRANCHES_ERROR"; error: UiGitError }
 	| { type: "SELECT_BRANCH"; branch: string }
 	| { type: "LOAD_REMOTE_DIFF_START" }
 	| {
@@ -54,22 +59,22 @@ type GitBranchesAction =
 			behindCount: number;
 			noUpstream: boolean;
 	  }
-	| { type: "LOAD_REMOTE_DIFF_ERROR"; error: string }
+	| { type: "LOAD_REMOTE_DIFF_ERROR"; error: UiGitError }
 	| { type: "FETCH_PULL_START" }
 	| { type: "FETCH_PULL_SUCCESS"; output: string; alreadyUpToDate: boolean }
-	| { type: "FETCH_PULL_ERROR"; error: string }
+	| { type: "FETCH_PULL_ERROR"; error: UiGitError }
 	| { type: "PULL_BRANCH_START" }
 	| { type: "PULL_BRANCH_SUCCESS"; output: string }
-	| { type: "PULL_BRANCH_ERROR"; error: string }
+	| { type: "PULL_BRANCH_ERROR"; error: UiGitError }
 	| { type: "CHECKOUT_START" }
 	| { type: "CHECKOUT_SUCCESS"; branch: string }
-	| { type: "CHECKOUT_ERROR"; error: string }
+	| { type: "CHECKOUT_ERROR"; error: UiGitError }
 	| { type: "LOAD_COMMITS_START" }
 	| { type: "LOAD_COMMITS_SUCCESS"; commits: GitCommit[]; branch: string }
-	| { type: "LOAD_COMMITS_ERROR"; error: string }
+	| { type: "LOAD_COMMITS_ERROR"; error: UiGitError }
 	| { type: "CREATE_BRANCH_START" }
 	| { type: "CREATE_BRANCH_SUCCESS"; branch: string }
-	| { type: "CREATE_BRANCH_ERROR"; error: string }
+	| { type: "CREATE_BRANCH_ERROR"; error: UiGitError }
 	| { type: "CLEAR_CREATE_BRANCH_FEEDBACK" }
 	| { type: "CLEAR_ERRORS" };
 
@@ -296,29 +301,8 @@ function reducer(
 	}
 }
 
-function mapGitErrorToMessage(error: GitOperationError): string {
-	switch (error.code) {
-		case "E_NOT_A_GIT_REPO":
-			return "This project is not a Git repository.";
-		case "E_NO_REMOTE":
-			return "Remote is not configured or currently unreachable.";
-		case "E_GIT_NOT_FOUND":
-			return "Git is not installed or not available in PATH.";
-		case "E_MERGE_CONFLICT":
-			return "Merge conflict detected. Resolve conflicts before pulling again.";
-		case "E_DIRTY_WORKING_DIR":
-			return "You have local uncommitted changes blocking this operation.";
-		case "E_BRANCH_NOT_FOUND":
-			return error.message || "Selected branch does not exist.";
-		case "E_BRANCH_ALREADY_EXISTS":
-			return "A branch with that name already exists.";
-		case "E_INVALID_BRANCH_NAME":
-			return error.message || "Invalid branch name.";
-		case "E_TIMEOUT":
-			return "Git operation timed out. Try again.";
-		default:
-			return error.message || "Unexpected Git error.";
-	}
+function mapGitErrorToMessage(error: GitOperationError): UiGitError {
+	return formatGitError(error);
 }
 
 function getBridge() {
@@ -340,7 +324,7 @@ export function useGitBranches(projectDir: string | null) {
 		if (!bridge) {
 			dispatch({
 				type: "LOAD_BRANCHES_ERROR",
-				error: "Electron bridge unavailable.",
+				error: toUiGitError("Electron bridge unavailable."),
 			});
 			return;
 		}
@@ -367,7 +351,7 @@ export function useGitBranches(projectDir: string | null) {
 		if (!bridge) {
 			dispatch({
 				type: "LOAD_REMOTE_DIFF_ERROR",
-				error: "Electron bridge unavailable.",
+				error: toUiGitError("Electron bridge unavailable."),
 			});
 			return;
 		}
@@ -396,7 +380,7 @@ export function useGitBranches(projectDir: string | null) {
 		if (!bridge) {
 			dispatch({
 				type: "FETCH_PULL_ERROR",
-				error: "Electron bridge unavailable.",
+				error: toUiGitError("Electron bridge unavailable."),
 			});
 			return;
 		}
@@ -425,7 +409,7 @@ export function useGitBranches(projectDir: string | null) {
 			if (!bridge) {
 				dispatch({
 					type: "PULL_BRANCH_ERROR",
-					error: "Electron bridge unavailable.",
+					error: toUiGitError("Electron bridge unavailable."),
 				});
 				return;
 			}
@@ -453,7 +437,7 @@ export function useGitBranches(projectDir: string | null) {
 			if (!bridge) {
 				dispatch({
 					type: "CHECKOUT_ERROR",
-					error: "Electron bridge unavailable.",
+					error: toUiGitError("Electron bridge unavailable."),
 				});
 				return;
 			}
@@ -479,7 +463,7 @@ export function useGitBranches(projectDir: string | null) {
 			if (!bridge) {
 				dispatch({
 					type: "LOAD_COMMITS_ERROR",
-					error: "Electron bridge unavailable.",
+					error: toUiGitError("Electron bridge unavailable."),
 				});
 				return;
 			}
@@ -514,7 +498,7 @@ export function useGitBranches(projectDir: string | null) {
 			if (!bridge) {
 				dispatch({
 					type: "CREATE_BRANCH_ERROR",
-					error: "Electron bridge unavailable.",
+					error: toUiGitError("Electron bridge unavailable."),
 				});
 				return;
 			}

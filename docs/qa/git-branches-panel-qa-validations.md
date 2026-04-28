@@ -265,3 +265,28 @@ Validar la implementación de la sección **Branches** del modal Git en AgentsFl
 - [ ] `src/ui/hooks/useGitChanges.ts` implementa reducer + callbacks + flujo de recarga.
 - [ ] `src/ui/components/GitIntegrationModal/GitChangesPanel.tsx` implementa 4 subsecciones.
 - [ ] `src/ui/styles/app.css` contiene clases `git-changes__*` requeridas.
+
+---
+
+## 9) Real Git error feedback (stderr/rawOutput)
+
+### Backend payload
+
+- [ ] Cuando falla `git add && commit` por hook/pre-commit: `GitOperationError` incluye `gitStderr` con salida real.
+- [ ] Cuando falla `git pull` (conflicto/red): `GitOperationError` incluye `gitStderr` y mantiene `rawOutput`.
+- [ ] Cuando falla `git fetch` por red/auth: payload incluye mensaje real en `gitStderr` o `rawOutput`.
+- [ ] En errores `E_UNKNOWN`, `message` viene con stderr real si existe; si no, usa fallback.
+
+### Frontend formatting (`formatGitError`)
+
+- [ ] `E_UNKNOWN` con stderr corto (<=300) se muestra completo en banner.
+- [ ] `E_UNKNOWN` con stderr largo (>300) se trunca en ~300 con `…`.
+- [ ] Si no hay `gitStderr/rawOutput`, se usa mensaje genérico (fallback) sin romper UI.
+- [ ] Para códigos conocidos (`E_MERGE_CONFLICT`, `E_DIRTY_WORKING_DIR`) se mantiene mensaje base y detalle útil.
+
+### UI banners (todos los paneles Git del modal)
+
+- [ ] Todos los banners de error de `GitBranchesPanel` muestran texto truncado y `title` con mensaje completo.
+- [ ] Banners de `GitChangesPanel` (status + commit) muestran texto truncado y `title` con mensaje completo.
+- [ ] Los banners renderizan saltos de línea (`white-space: pre-wrap`).
+- [ ] Texto largo no desborda layout del modal (word-break correcto).

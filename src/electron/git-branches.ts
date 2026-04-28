@@ -29,9 +29,10 @@ type RunGitResult = {
 function gitError(
 	code: GitOperationErrorCode,
 	message: string,
+	gitStderr?: string,
 	rawOutput?: string,
 ): GitOperationError {
-	return { ok: false, code, message, rawOutput };
+	return { ok: false, code, message, gitStderr, rawOutput };
 }
 
 function isNotGitRepo(stderr: string): boolean {
@@ -94,16 +95,23 @@ function toGitError(
 		return gitError(
 			"E_GIT_NOT_FOUND",
 			"Git is not installed or not found in PATH.",
+			result.stderr || undefined,
 			rawOutput,
 		);
 	}
 	if (result.timedOut) {
-		return gitError("E_TIMEOUT", "Git operation timed out.", rawOutput);
+		return gitError(
+			"E_TIMEOUT",
+			"Git operation timed out.",
+			result.stderr || undefined,
+			rawOutput,
+		);
 	}
 	if (isNotGitRepo(result.stderr)) {
 		return gitError(
 			"E_NOT_A_GIT_REPO",
 			"The selected folder is not a Git repository.",
+			result.stderr || undefined,
 			rawOutput,
 		);
 	}
@@ -111,6 +119,7 @@ function toGitError(
 		return gitError(
 			"E_MERGE_CONFLICT",
 			"Pull failed due to merge conflicts.",
+			result.stderr || undefined,
 			rawOutput,
 		);
 	}
@@ -118,6 +127,7 @@ function toGitError(
 		return gitError(
 			"E_DIRTY_WORKING_DIR",
 			"Your working directory has uncommitted changes blocking this operation.",
+			result.stderr || undefined,
 			rawOutput,
 		);
 	}
@@ -125,6 +135,7 @@ function toGitError(
 		return gitError(
 			"E_BRANCH_NOT_FOUND",
 			"The requested branch does not exist.",
+			result.stderr || undefined,
 			rawOutput,
 		);
 	}
@@ -132,11 +143,17 @@ function toGitError(
 		return gitError(
 			"E_NO_REMOTE",
 			"No remote configured or remote unreachable.",
+			result.stderr || undefined,
 			rawOutput,
 		);
 	}
 
-	return gitError("E_UNKNOWN", fallbackMessage, rawOutput || undefined);
+	return gitError(
+		"E_UNKNOWN",
+		result.stderr || fallbackMessage,
+		result.stderr || undefined,
+		rawOutput || undefined,
+	);
 }
 
 /**
@@ -329,6 +346,7 @@ async function getRemoteDiff(
 			return gitError(
 				"E_TIMEOUT",
 				"Fetch timed out while contacting remote.",
+				fetchRes.stderr || undefined,
 				fetchRes.stderr,
 			);
 		}
@@ -541,6 +559,7 @@ async function createBranch(
 		return gitError(
 			"E_BRANCH_NOT_FOUND",
 			`Source branch '${sourceName}' does not exist.`,
+			sourceRes.stderr || undefined,
 			sourceRes.stderr || sourceRes.stdout || undefined,
 		);
 	}

@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useReducer } from "react";
 import type { GitChangedFile, GitOperationError } from "../../electron/bridge.types.ts";
+import {
+	formatGitError,
+	type UiGitError,
+	toUiGitError,
+} from "../utils/gitErrorUtils.ts";
 
 interface GitChangesState {
 	currentBranch: string;
@@ -10,8 +15,8 @@ interface GitChangesState {
 	commitDescription: string;
 	isLoadingStatus: boolean;
 	isCommitting: boolean;
-	statusError: string | null;
-	commitError: string | null;
+	statusError: UiGitError | null;
+	commitError: UiGitError | null;
 	lastCommitSuccess: string | null;
 }
 
@@ -24,12 +29,12 @@ type GitChangesAction =
 			stagedCount: number;
 			unstagedCount: number;
 	  }
-	| { type: "LOAD_STATUS_ERROR"; error: string }
+	| { type: "LOAD_STATUS_ERROR"; error: UiGitError }
 	| { type: "SET_COMMIT_MESSAGE"; message: string }
 	| { type: "SET_COMMIT_DESCRIPTION"; description: string }
 	| { type: "COMMIT_START" }
 	| { type: "COMMIT_SUCCESS"; commitHash: string }
-	| { type: "COMMIT_ERROR"; error: string }
+	| { type: "COMMIT_ERROR"; error: UiGitError }
 	| { type: "CLEAR_COMMIT_FEEDBACK" }
 	| { type: "RESET_FORM" };
 
@@ -118,21 +123,8 @@ function reducer(state: GitChangesState, action: GitChangesAction): GitChangesSt
 	}
 }
 
-function mapGitErrorToMessage(error: GitOperationError): string {
-	switch (error.code) {
-		case "E_NOT_A_GIT_REPO":
-			return "This directory is not a Git repository.";
-		case "E_NOTHING_TO_COMMIT":
-			return "Nothing to commit. Working tree is clean.";
-		case "E_EMPTY_COMMIT_MSG":
-			return "Commit message cannot be empty.";
-		case "E_GIT_NOT_FOUND":
-			return "Git is not installed or not found in PATH.";
-		case "E_TIMEOUT":
-			return "Git operation timed out. Try again.";
-		default:
-			return error.message || "An unexpected Git error occurred.";
-	}
+function mapGitErrorToMessage(error: GitOperationError): UiGitError {
+	return formatGitError(error);
 }
 
 function getBridge() {
@@ -154,7 +146,7 @@ export function useGitChanges(projectDir: string | null) {
 		if (!bridge) {
 			dispatch({
 				type: "LOAD_STATUS_ERROR",
-				error: "Electron bridge unavailable.",
+				error: toUiGitError("Electron bridge unavailable."),
 			});
 			return;
 		}
@@ -179,7 +171,7 @@ export function useGitChanges(projectDir: string | null) {
 		} catch {
 			dispatch({
 				type: "LOAD_STATUS_ERROR",
-				error: "Unexpected error loading status.",
+				error: toUiGitError("Unexpected error loading status."),
 			});
 		}
 	}, [projectDir]);
@@ -198,7 +190,7 @@ export function useGitChanges(projectDir: string | null) {
 		if (!bridge) {
 			dispatch({
 				type: "COMMIT_ERROR",
-				error: "Electron bridge unavailable.",
+				error: toUiGitError("Electron bridge unavailable."),
 			});
 			return;
 		}
@@ -208,7 +200,7 @@ export function useGitChanges(projectDir: string | null) {
 		if (!trimmedMessage) {
 			dispatch({
 				type: "COMMIT_ERROR",
-				error: "Commit message cannot be empty.",
+				error: toUiGitError("Commit message cannot be empty."),
 			});
 			return;
 		}
@@ -236,7 +228,7 @@ export function useGitChanges(projectDir: string | null) {
 		} catch {
 			dispatch({
 				type: "COMMIT_ERROR",
-				error: "Unexpected error during commit.",
+				error: toUiGitError("Unexpected error during commit."),
 			});
 		}
 	}, [projectDir, state.commitMessage, state.commitDescription, loadStatus]);

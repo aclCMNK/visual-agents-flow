@@ -23,9 +23,10 @@ type RunGitResult = {
 function gitError(
 	code: GitOperationErrorCode,
 	message: string,
+	gitStderr?: string,
 	rawOutput?: string,
 ): GitOperationError {
-	return { ok: false, code, message, rawOutput };
+	return { ok: false, code, message, gitStderr, rawOutput };
 }
 
 function isNotGitRepo(stderr: string): boolean {
@@ -59,21 +60,33 @@ function toGitError(
 		return gitError(
 			"E_GIT_NOT_FOUND",
 			"Git is not installed or not found in PATH.",
+			result.stderr || undefined,
 			rawOutput,
 		);
 	}
 	if (result.timedOut) {
-		return gitError("E_TIMEOUT", "Git operation timed out.", rawOutput);
+		return gitError(
+			"E_TIMEOUT",
+			"Git operation timed out.",
+			result.stderr || undefined,
+			rawOutput,
+		);
 	}
 	if (isNotGitRepo(result.stderr)) {
 		return gitError(
 			"E_NOT_A_GIT_REPO",
 			"The selected folder is not a Git repository.",
+			result.stderr || undefined,
 			rawOutput,
 		);
 	}
 
-	return gitError("E_UNKNOWN", fallbackMessage, rawOutput || undefined);
+	return gitError(
+		"E_UNKNOWN",
+		result.stderr || fallbackMessage,
+		result.stderr || undefined,
+		rawOutput || undefined,
+	);
 }
 
 async function runGit(
@@ -236,6 +249,7 @@ async function addAndCommit(
 			return gitError(
 				"E_NOTHING_TO_COMMIT",
 				"Nothing to commit. Working tree is clean.",
+				commitRes.stderr || undefined,
 				combinedOutput,
 			);
 		}

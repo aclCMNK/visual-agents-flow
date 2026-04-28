@@ -2,6 +2,7 @@ import { useEffect, useMemo } from "react";
 import type { GitChangedFile } from "../../../electron/bridge.types.ts";
 import { useGitChanges } from "../../hooks/useGitChanges.ts";
 import { useProjectStore } from "../../store/projectStore.ts";
+import type { UiGitError } from "../../utils/gitErrorUtils.ts";
 
 interface CurrentBranchSectionProps {
 	currentBranch: string;
@@ -21,7 +22,7 @@ interface ChangedFilesSectionProps {
 	stagedCount: number;
 	unstagedCount: number;
 	isLoading: boolean;
-	error: string | null;
+	error: UiGitError | null;
 	onRefresh: () => void;
 }
 
@@ -33,7 +34,7 @@ interface CommitActionSectionProps {
 	commitMessage: string;
 	hasChanges: boolean;
 	isCommitting: boolean;
-	commitError: string | null;
+	commitError: UiGitError | null;
 	lastCommitSuccess: string | null;
 	onAddAndCommit: () => void;
 }
@@ -258,8 +259,12 @@ function ChangedFilesSection(props: ChangedFilesSectionProps) {
 			</p>
 
 			{props.error && (
-				<div className="git-branches__error-banner" role="alert">
-					{props.error}
+				<div
+					className="git-branches__error-banner git-branches__error-banner--multiline"
+					role="alert"
+					title={props.error.fullMessage}
+				>
+					{props.error.displayMessage}
 				</div>
 			)}
 
@@ -295,8 +300,12 @@ function CommitActionSection(props: CommitActionSectionProps) {
 			</header>
 
 			{props.commitError && (
-				<div className="git-branches__error-banner" role="alert">
-					{props.commitError}
+				<div
+					className="git-branches__error-banner git-branches__error-banner--multiline"
+					role="alert"
+					title={props.commitError.fullMessage}
+				>
+					{props.commitError.displayMessage}
 				</div>
 			)}
 

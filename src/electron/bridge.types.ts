@@ -1914,7 +1914,12 @@ export type GitOperationErrorCode =
 export interface GitOperationError {
 	ok: false;
 	code: GitOperationErrorCode;
+	/**
+	 * Mensaje legible para UI. Para E_UNKNOWN puede contener stderr real de git.
+	 */
 	message: string;
+	/** stderr real de git sin procesar (si existe) */
+	gitStderr?: string;
 	/** Output raw del comando git (para debugging) */
 	rawOutput?: string;
 }

@@ -3,6 +3,7 @@ import type { ChangeEvent } from "react";
 import type { GitBranch, GitCommit } from "../../../electron/bridge.types.ts";
 import { useGitBranches } from "../../hooks/useGitBranches.ts";
 import { useProjectStore } from "../../store/projectStore.ts";
+import type { UiGitError } from "../../utils/gitErrorUtils.ts";
 
 interface RemoteChangesSectionProps {
 	incomingCommits: GitCommit[];
@@ -11,7 +12,7 @@ interface RemoteChangesSectionProps {
 	noUpstream: boolean;
 	isLoadingRemoteDiff: boolean;
 	isFetchingAndPulling: boolean;
-	error: string | null;
+	error: UiGitError | null;
 	successMessage: string | null;
 	onFetchAndPull: () => void;
 	onRefresh: () => void;
@@ -24,8 +25,8 @@ interface BranchSelectorSectionProps {
 	isLoadingBranches: boolean;
 	isPullingBranch: boolean;
 	isCheckingOut: boolean;
-	pullError: string | null;
-	checkoutError: string | null;
+	pullError: UiGitError | null;
+	checkoutError: UiGitError | null;
 	checkoutSuccess: string | null;
 	onSelectBranch: (branch: string) => void;
 	onPullBranch: () => void;
@@ -36,14 +37,14 @@ interface BranchCommitsSectionProps {
 	selectedBranch: string;
 	commits: GitCommit[];
 	isLoading: boolean;
-	error: string | null;
+	error: UiGitError | null;
 }
 
 interface BranchCreatorSectionProps {
 	currentBranch: string;
 	allLocalBranches: GitBranch[];
 	isCreatingBranch: boolean;
-	createBranchError: string | null;
+	createBranchError: UiGitError | null;
 	lastCreateBranchSuccess: string | null;
 	onCreateBranch: (newName: string, sourceBranch: string) => void;
 	onClearCreateBranchError: () => void;
@@ -99,8 +100,12 @@ function RemoteChangesSection(props: RemoteChangesSectionProps) {
 			</header>
 
 			{props.error && (
-				<div className="git-branches__error-banner" role="alert">
-					{props.error}
+				<div
+					className="git-branches__error-banner git-branches__error-banner--multiline"
+					role="alert"
+					title={props.error.fullMessage}
+				>
+					{props.error.displayMessage}
 				</div>
 			)}
 			{props.successMessage && (
@@ -258,13 +263,21 @@ function BranchSelectorSection(props: BranchSelectorSectionProps) {
 			)}
 
 			{props.pullError && (
-				<div className="git-branches__error-banner" role="alert">
-					{props.pullError}
+				<div
+					className="git-branches__error-banner git-branches__error-banner--multiline"
+					role="alert"
+					title={props.pullError.fullMessage}
+				>
+					{props.pullError.displayMessage}
 				</div>
 			)}
 			{props.checkoutError && (
-				<div className="git-branches__error-banner" role="alert">
-					{props.checkoutError}
+				<div
+					className="git-branches__error-banner git-branches__error-banner--multiline"
+					role="alert"
+					title={props.checkoutError.fullMessage}
+				>
+					{props.checkoutError.displayMessage}
 				</div>
 			)}
 			{props.checkoutSuccess && (
@@ -300,8 +313,12 @@ function BranchCommitsSection(props: BranchCommitsSectionProps) {
 					Loading commits…
 				</div>
 			) : props.error ? (
-				<div className="git-branches__error-banner" role="alert">
-					{props.error}
+				<div
+					className="git-branches__error-banner git-branches__error-banner--multiline"
+					role="alert"
+					title={props.error.fullMessage}
+				>
+					{props.error.displayMessage}
 				</div>
 			) : props.commits.length === 0 ? (
 				<div className="git-branches__empty-state">
@@ -464,8 +481,12 @@ function BranchCreatorSection(props: BranchCreatorSectionProps) {
 			</div>
 
 			{props.createBranchError && (
-				<div className="git-branches__error-banner" role="alert">
-					{props.createBranchError}
+				<div
+					className="git-branches__error-banner git-branches__error-banner--multiline"
+					role="alert"
+					title={props.createBranchError.fullMessage}
+				>
+					{props.createBranchError.displayMessage}
 				</div>
 			)}
 
@@ -580,7 +601,13 @@ export function GitBranchesPanel() {
 			/>
 
 			{state.branchesError && (
-				<div className="git-branches__error-banner">{state.branchesError}</div>
+				<div
+					className="git-branches__error-banner git-branches__error-banner--multiline"
+					role="alert"
+					title={state.branchesError.fullMessage}
+				>
+					{state.branchesError.displayMessage}
+				</div>
 			)}
 		</div>
 	);

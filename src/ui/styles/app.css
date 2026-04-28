@@ -1978,6 +1978,11 @@ button:disabled {
 	font-size: 0.8rem;
 }
 
+.git-branches__error-banner--multiline {
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
 .git-branches__success-banner {
 	padding: 8px 12px;
 	border-radius: var(--radius-md);
