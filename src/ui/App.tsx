@@ -48,6 +48,7 @@ import { PropertiesPanel } from "./components/PropertiesPanel.tsx";
 import { AgentProfileModal } from "./components/AgentProfiling/AgentProfileModal.tsx";
 import { PermissionsModal } from "./components/Permissions/index.ts";
 import { ExportModal } from "./components/ExportModal/index.ts";
+import { GitIntegrationModal } from "./components/GitIntegrationModal/index.ts";
 
 // ── Load Toast ─────────────────────────────────────────────────────────────
 // Shown after a project load operation completes (success or error).
@@ -125,6 +126,7 @@ function EditorView() {
 	const userNode = useAgentFlowStore((s) => s.userNode);
 	const addUserNode = useAgentFlowStore((s) => s.addUserNode);
 	const openExportModal = useAgentFlowStore((s) => s.openExportModal);
+	const openGitModal = useAgentFlowStore((s) => s.openGitModal);
 	const syncTaskPermissions = useAgentFlowStore((s) => s.syncTaskPermissions);
 
 	// ── Sync Tasks state ─────────────────────────────────────────────────────
@@ -247,6 +249,13 @@ function EditorView() {
 						Validation
 					</button>
 					<AgentGraphSaveButton />
+					<button
+						className="editor-view__topbar-btn"
+						onClick={openGitModal}
+						title="Open Git Integration panel"
+					>
+						⎇ Git
+					</button>
 					<button
 						className="editor-view__topbar-btn"
 						onClick={openExportModal}
@@ -577,6 +586,8 @@ export function App() {
 	// Same portal pattern — mounted at document.body level.
 	const exportModalOpen = useAgentFlowStore((s) => s.exportModalOpen);
 	const closeExportModal = useAgentFlowStore((s) => s.closeExportModal);
+	const gitModalOpen = useAgentFlowStore((s) => s.gitModalOpen);
+	const closeGitModal = useAgentFlowStore((s) => s.closeGitModal);
 
 	// ── Toast state (project load success / error) ───────────────────────────
 	const [loadToast, setLoadToast] = useState<LoadToast | null>(null);
@@ -692,6 +703,14 @@ export function App() {
 			{/* Same portal pattern as AgentProfileModal and PermissionsModal.   */}
 			{exportModalOpen &&
 				createPortal(<ExportModal onClose={closeExportModal} />, document.body)}
+
+			{/* ── Git Integration modal — global portal, above ALL overlays ──────── */}
+			{/* Same portal pattern as ExportModal.                                   */}
+			{gitModalOpen &&
+				createPortal(
+					<GitIntegrationModal onClose={closeGitModal} />,
+					document.body,
+				)}
 		</div>
 	);
 }

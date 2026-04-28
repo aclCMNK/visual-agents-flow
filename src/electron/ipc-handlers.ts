@@ -146,6 +146,7 @@ import {
 import { handleListSkills } from "./skills-handlers.ts";
 import { handleRenameAgentFolder } from "./rename-agent-folder.ts";
 import { exportActiveSkills } from "./skill-export-handlers.ts";
+import { registerGitBranchesHandlers } from "./git-branches.ts";
 
 // ── Folder Explorer ────────────────────────────────────────────────────────
 // The folder-explorer handlers live in the electron-main module tree because
@@ -2469,17 +2470,11 @@ export function registerIpcHandlers(): void {
 	// ══════════════════════════════════════════════════════════════════════
 	ipcMain.handle(
 		IPC_CHANNELS.GITHUB_FETCH,
-		async (
-			_event,
-			req: GitHubFetchRequest,
-		): Promise<GitHubFetchResult> => {
+		async (_event, req: GitHubFetchRequest): Promise<GitHubFetchResult> => {
 			const ALLOWED_ORIGIN = "https://api.github.com/";
 
 			// ── URL guard ─────────────────────────────────────────────────────
-			if (
-				typeof req.url !== "string" ||
-				!req.url.startsWith(ALLOWED_ORIGIN)
-			) {
+			if (typeof req.url !== "string" || !req.url.startsWith(ALLOWED_ORIGIN)) {
 				console.warn(
 					"[ipc] GITHUB_FETCH: rejected URL (not api.github.com) →",
 					req.url,
@@ -2500,9 +2495,7 @@ export function registerIpcHandlers(): void {
 						Accept: "application/vnd.github+json",
 						"User-Agent": "AgentsFlow-Electron",
 						"X-GitHub-Api-Version": "2022-11-28",
-						...(req.token
-							? { Authorization: `Bearer ${req.token}` }
-							: {}),
+						...(req.token ? { Authorization: `Bearer ${req.token}` } : {}),
 					},
 				};
 
@@ -2520,7 +2513,8 @@ export function registerIpcHandlers(): void {
 							req.url,
 						);
 						resolve({
-							success: (res.statusCode ?? 0) >= 200 && (res.statusCode ?? 0) < 300,
+							success:
+								(res.statusCode ?? 0) >= 200 && (res.statusCode ?? 0) < 300,
 							status: res.statusCode,
 							body,
 						});
@@ -2574,6 +2568,7 @@ export function registerIpcHandlers(): void {
 	// matches user-observable startup priority.
 	// ══════════════════════════════════════════════════════════════════════
 	registerFolderExplorerHandlers(ipcMain);
+	registerGitBranchesHandlers(ipcMain);
 
 	// ══════════════════════════════════════════════════════════════════════
 	// Git Clone handler — full implementation
@@ -2796,7 +2791,10 @@ export function registerIpcHandlers(): void {
 
 						if (progressMatch) {
 							const stageRaw = progressMatch[1]?.trim().toLowerCase() ?? "";
-							percent = Math.min(100, Math.max(0, parseInt(progressMatch[2] ?? "0", 10)));
+							percent = Math.min(
+								100,
+								Math.max(0, parseInt(progressMatch[2] ?? "0", 10)),
+							);
 
 							if (stageRaw.includes("counting")) {
 								stage = "COUNTING_OBJECTS";
@@ -2857,7 +2855,8 @@ export function registerIpcHandlers(): void {
 							success: false,
 							cloneId,
 							errorCode: "GIT_NOT_FOUND",
-							error: "`git` binary was not found. Make sure Git is installed and on your PATH.",
+							error:
+								"`git` binary was not found. Make sure Git is installed and on your PATH.",
 							technicalDetails: err.message,
 						});
 					} else {
@@ -2941,10 +2940,7 @@ export function registerIpcHandlers(): void {
 
 	ipcMain.handle(
 		IPC_CHANNELS.GIT_CLONE_CANCEL,
-		async (
-			_event,
-			req: CloneCancelRequest,
-		): Promise<CloneCancelResult> => {
+		async (_event, req: CloneCancelRequest): Promise<CloneCancelResult> => {
 			const { cloneId } = req;
 			const child = activeClones.get(cloneId);
 
@@ -3005,10 +3001,7 @@ export function registerIpcHandlers(): void {
 
 	ipcMain.handle(
 		IPC_CHANNELS.GIT_CLONE_VALIDATE,
-		async (
-			_event,
-			req: CloneValidateRequest,
-		): Promise<CloneValidateResult> => {
+		async (_event, req: CloneValidateRequest): Promise<CloneValidateResult> => {
 			// SECURITY: Do NOT log req.token
 			console.log("[GIT_CLONE_VALIDATE] Validating token against GitHub API");
 
@@ -3043,7 +3036,10 @@ export function registerIpcHandlers(): void {
 					res.on("end", () => {
 						const status = res.statusCode ?? 0;
 						// SECURITY: Do NOT log the Authorization header or token
-						console.log("[GIT_CLONE_VALIDATE] GitHub API response status:", status);
+						console.log(
+							"[GIT_CLONE_VALIDATE] GitHub API response status:",
+							status,
+						);
 
 						if (status === 200) {
 							resolve({
@@ -3085,7 +3081,8 @@ export function registerIpcHandlers(): void {
 							resolve({
 								valid: false,
 								status,
-								message: "Rate limit de GitHub alcanzado (HTTP 429). Intente más tarde.",
+								message:
+									"Rate limit de GitHub alcanzado (HTTP 429). Intente más tarde.",
 								errorCode: "RATE_LIMITED",
 							});
 						} else {
@@ -3100,10 +3097,7 @@ export function registerIpcHandlers(): void {
 				});
 
 				request.on("error", (err: Error) => {
-					console.error(
-						"[GIT_CLONE_VALIDATE] Network error —",
-						err.message,
-					);
+					console.error("[GIT_CLONE_VALIDATE] Network error —", err.message);
 					resolve({
 						valid: false,
 						message: `Error de red al validar token: ${err.message}`,

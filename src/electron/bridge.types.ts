@@ -472,6 +472,28 @@ export const IPC_CHANNELS = {
 	// returns the URL of the remote named `origin`.
 	// Returns string | null. Never throws — all errors resolve to null.
 	GET_GIT_REMOTE_ORIGIN: "git:get-remote-origin",
+
+	// ── Git Branches channels ──────────────────────────────────────────────────
+
+	// Lista todas las ramas locales y remotas del repositorio.
+	// Retorna la rama activa actual y el listado completo.
+	GIT_LIST_BRANCHES: "git:list-branches",
+
+	// Obtiene los commits del remoto que no están en local (ahead/behind).
+	// Equivale a: git fetch --dry-run + git log HEAD..origin/<branch>
+	GIT_GET_REMOTE_DIFF: "git:get-remote-diff",
+
+	// Ejecuta git fetch + git pull en la rama actual.
+	GIT_FETCH_AND_PULL: "git:fetch-and-pull",
+
+	// Ejecuta git pull en la rama especificada.
+	GIT_PULL_BRANCH: "git:pull-branch",
+
+	// Ejecuta git checkout para cambiar a la rama especificada.
+	GIT_CHECKOUT_BRANCH: "git:checkout-branch",
+
+	// Obtiene el historial de commits de una rama específica.
+	GIT_GET_BRANCH_COMMITS: "git:get-branch-commits",
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
@@ -1825,6 +1847,173 @@ export interface SaveGitCredentialsResult {
 	errorCode?: "IO_ERROR" | "INVALID_DIR" | "EMPTY_CREDS";
 }
 
+// ── Git Branches IPC types ─────────────────────────────────────────────────
+
+/** Un commit de git serializable */
+export interface GitCommit {
+	/** Hash corto del commit (7 chars) */
+	hash: string;
+	/** Hash completo */
+	fullHash: string;
+	/** Mensaje del commit (primera línea) */
+	message: string;
+	/** Autor del commit */
+	author: string;
+	/** Fecha ISO 8601 del commit */
+	date: string;
+	/** Fecha relativa legible (e.g. "2 days ago") */
+	relativeDate: string;
+}
+
+/** Una rama de git */
+export interface GitBranch {
+	/** Nombre de la rama (sin prefijo remoto) */
+	name: string;
+	/** True si es la rama actualmente activa (HEAD) */
+	isCurrent: boolean;
+	/** True si es una rama remota */
+	isRemote: boolean;
+	/** Nombre del remoto (e.g. "origin"), solo para ramas remotas */
+	remote?: string;
+	/** True si la rama tiene un tracking remoto configurado */
+	hasUpstream: boolean;
+	/** Número de commits locales no pusheados al remoto */
+	aheadCount?: number;
+	/** Número de commits remotos no pulleados al local */
+	behindCount?: number;
+}
+
+// ── Error envelope compartido ──────────────────────────────────────────────
+
+export type GitOperationErrorCode =
+	| "E_NOT_A_GIT_REPO"
+	| "E_NO_REMOTE"
+	| "E_GIT_NOT_FOUND"
+	| "E_MERGE_CONFLICT"
+	| "E_DIRTY_WORKING_DIR"
+	| "E_BRANCH_NOT_FOUND"
+	| "E_TIMEOUT"
+	| "E_UNKNOWN";
+
+export interface GitOperationError {
+	ok: false;
+	code: GitOperationErrorCode;
+	message: string;
+	/** Output raw del comando git (para debugging) */
+	rawOutput?: string;
+}
+
+// ── GIT_LIST_BRANCHES ──────────────────────────────────────────────────────
+
+export interface GitListBranchesRequest {
+	projectDir: string;
+}
+
+export interface GitListBranchesResult {
+	ok: true;
+	/** Nombre de la rama activa actual */
+	currentBranch: string;
+	/** Todas las ramas locales (incluye main/master para info de currentBranch) */
+	branches: GitBranch[];
+}
+
+export type GitListBranchesResponse = GitListBranchesResult | GitOperationError;
+
+// ── GIT_GET_REMOTE_DIFF ────────────────────────────────────────────────────
+
+export interface GitGetRemoteDiffRequest {
+	projectDir: string;
+	/** Rama a comparar (por defecto la rama actual) */
+	branch?: string;
+}
+
+export interface GitGetRemoteDiffResult {
+	ok: true;
+	/** Commits en el remoto que no están en local */
+	incomingCommits: GitCommit[];
+	/** Número de commits locales no pusheados */
+	aheadCount: number;
+	/** Número de commits remotos no pulleados */
+	behindCount: number;
+	/** True si no hay remoto configurado para esta rama */
+	noUpstream: boolean;
+}
+
+export type GitGetRemoteDiffResponse =
+	| GitGetRemoteDiffResult
+	| GitOperationError;
+
+// ── GIT_FETCH_AND_PULL ─────────────────────────────────────────────────────
+
+export interface GitFetchAndPullRequest {
+	projectDir: string;
+}
+
+export interface GitFetchAndPullResult {
+	ok: true;
+	/** Output del comando git pull */
+	output: string;
+	/** True si ya estaba up-to-date */
+	alreadyUpToDate: boolean;
+}
+
+export type GitFetchAndPullResponse = GitFetchAndPullResult | GitOperationError;
+
+// ── GIT_PULL_BRANCH ────────────────────────────────────────────────────────
+
+export interface GitPullBranchRequest {
+	projectDir: string;
+	/** Nombre de la rama a pullear */
+	branch: string;
+}
+
+export interface GitPullBranchResult {
+	ok: true;
+	output: string;
+	alreadyUpToDate: boolean;
+}
+
+export type GitPullBranchResponse = GitPullBranchResult | GitOperationError;
+
+// ── GIT_CHECKOUT_BRANCH ────────────────────────────────────────────────────
+
+export interface GitCheckoutBranchRequest {
+	projectDir: string;
+	/** Nombre de la rama a la que cambiar */
+	branch: string;
+}
+
+export interface GitCheckoutBranchResult {
+	ok: true;
+	/** Nombre de la rama a la que se cambió */
+	branch: string;
+	output: string;
+}
+
+export type GitCheckoutBranchResponse =
+	| GitCheckoutBranchResult
+	| GitOperationError;
+
+// ── GIT_GET_BRANCH_COMMITS ─────────────────────────────────────────────────
+
+export interface GitGetBranchCommitsRequest {
+	projectDir: string;
+	/** Nombre de la rama */
+	branch: string;
+	/** Número máximo de commits a retornar (default: 20) */
+	limit?: number;
+}
+
+export interface GitGetBranchCommitsResult {
+	ok: true;
+	branch: string;
+	commits: GitCommit[];
+}
+
+export type GitGetBranchCommitsResponse =
+	| GitGetBranchCommitsResult
+	| GitOperationError;
+
 export interface AgentsFlowBridge {
 	/**
 	 * Opens a native folder picker dialog.
@@ -2337,6 +2526,23 @@ export interface AgentsFlowBridge {
 	 * Always resolves — never rejects.
 	 */
 	getGitRemoteOrigin(projectDir: string): Promise<string | null>;
+
+	gitListBranches(
+		req: GitListBranchesRequest,
+	): Promise<GitListBranchesResponse>;
+	gitGetRemoteDiff(
+		req: GitGetRemoteDiffRequest,
+	): Promise<GitGetRemoteDiffResponse>;
+	gitFetchAndPull(
+		req: GitFetchAndPullRequest,
+	): Promise<GitFetchAndPullResponse>;
+	gitPullBranch(req: GitPullBranchRequest): Promise<GitPullBranchResponse>;
+	gitCheckoutBranch(
+		req: GitCheckoutBranchRequest,
+	): Promise<GitCheckoutBranchResponse>;
+	gitGetBranchCommits(
+		req: GitGetBranchCommitsRequest,
+	): Promise<GitGetBranchCommitsResponse>;
 }
 
 // ── Global type augmentation ──────────────────────────────────────────────

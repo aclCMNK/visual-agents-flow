@@ -1660,6 +1660,307 @@ button:disabled {
 	padding-top: 8px;
 }
 
+/* ── Git Integration Modal — size overrides ────────────────────────────── */
+/* Overrides .modal base dimensions to meet the 50vw / 80vh requirement.   */
+/* All other visual styles (.modal__header, .modal__body, etc.) are shared. */
+
+.modal--git {
+	min-width: min(
+		50vw,
+		90vw
+	); /* 50% viewport width, capped at 90vw on small screens */
+	max-width: min(80vw, 1200px); /* generous max for large screens */
+	min-height: 80vh;
+	max-height: 90vh;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden; /* el scroll lo maneja .git-modal__body */
+}
+
+.git-modal__body {
+	flex: 1;
+	overflow: hidden;
+	min-height: 0; /* necesario para que flex + overflow funcione */
+}
+
+.git-modal__placeholder {
+	color: var(--color-text-muted);
+	font-size: 0.9rem;
+	text-align: center;
+	padding: 2rem 0;
+}
+
+/* ── Git Integration Modal — two-column layout ──────────────────────────── */
+
+.git-modal__layout {
+	display: flex;
+	flex-direction: row;
+	height: 100%;
+	min-height: 0;
+}
+
+.git-modal__sidebar {
+	width: 160px;
+	flex-shrink: 0;
+	display: flex;
+	flex-direction: column;
+	padding: 16px 8px;
+	border-right: 1px solid var(--color-border);
+	background: var(--color-surface);
+}
+
+.git-modal__sidebar [role="tablist"] {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.git-modal__sidebar-btn {
+	display: flex;
+	align-items: center;
+	width: 100%;
+	padding: 8px 12px;
+	border-radius: var(--radius-md);
+	font-size: 0.875rem;
+	font-weight: 500;
+	color: var(--color-text-muted);
+	text-align: left;
+	background: transparent;
+	border: none;
+	cursor: pointer;
+	transition:
+		background var(--transition),
+		color var(--transition);
+}
+
+.git-modal__sidebar-btn:hover:not(.git-modal__sidebar-btn--active) {
+	background: var(--color-surface-2);
+	color: var(--color-text);
+}
+
+.git-modal__sidebar-btn--active {
+	background: var(--color-surface-2);
+	color: var(--color-text);
+	font-weight: 600;
+}
+
+.git-modal__content {
+	flex: 1;
+	min-width: 0;
+	overflow-y: auto;
+	padding: 16px 20px;
+}
+
+.git-modal__section-content {
+	height: 100%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.git-modal__section-placeholder {
+	color: var(--color-text-muted);
+	font-size: 0.9rem;
+	text-align: center;
+}
+
+/* ── Git Branches Panel ──────────────────────────────────────────────────── */
+
+.git-branches {
+	display: flex;
+	flex-direction: column;
+	gap: 0;
+	height: 100%;
+}
+
+.git-branches__divider {
+	height: 1px;
+	background: var(--color-border);
+	margin: 16px 0;
+	flex-shrink: 0;
+}
+
+.git-branches__section {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.git-branches__section-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.git-branches__section-title {
+	font-size: 0.8rem;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	color: var(--color-text-muted);
+}
+
+.git-branches__remote-status {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 0.8rem;
+	color: var(--color-text-muted);
+}
+
+.git-branches__remote-status--behind {
+	color: var(--color-warning, #f59e0b);
+}
+
+.git-branches__remote-status--uptodate {
+	color: var(--color-success, #10b981);
+}
+
+.git-branches__commit-list {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	max-height: 160px;
+	overflow-y: auto;
+}
+
+.git-branches__commit-item {
+	display: grid;
+	grid-template-columns: 60px 1fr auto auto;
+	gap: 8px;
+	align-items: baseline;
+	padding: 4px 6px;
+	border-radius: var(--radius-sm);
+	font-size: 0.8rem;
+}
+
+.git-branches__commit-item:hover {
+	background: var(--color-surface-2);
+}
+
+.git-branches__commit-hash {
+	font-family: monospace;
+	color: var(--color-text-muted);
+	font-size: 0.75rem;
+}
+
+.git-branches__commit-message {
+	color: var(--color-text);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.git-branches__commit-author {
+	color: var(--color-text-muted);
+	font-size: 0.75rem;
+	white-space: nowrap;
+}
+
+.git-branches__commit-date {
+	color: var(--color-text-muted);
+	font-size: 0.75rem;
+	white-space: nowrap;
+}
+
+.git-branches__current-label {
+	font-size: 0.8rem;
+	color: var(--color-text-muted);
+}
+
+.git-branches__current-name {
+	font-weight: 600;
+	color: var(--color-text);
+}
+
+.git-branches__selector-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.git-branches__select {
+	flex: 1;
+	min-width: 0;
+	padding: 6px 10px;
+	border-radius: var(--radius-md);
+	border: 1px solid var(--color-border);
+	background: var(--color-surface-2);
+	color: var(--color-text);
+	font-size: 0.875rem;
+	cursor: pointer;
+}
+
+.git-branches__select:focus {
+	outline: 2px solid var(--color-accent, #6366f1);
+	outline-offset: 1px;
+}
+
+.git-branches__commits-section {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.git-branches__commits-list {
+	flex: 1;
+	overflow-y: auto;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.git-branches__spinner {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 16px;
+	color: var(--color-text-muted);
+	font-size: 0.875rem;
+}
+
+.git-branches__error-banner {
+	padding: 8px 12px;
+	border-radius: var(--radius-md);
+	background: var(--color-error-bg, rgba(239, 68, 68, 0.1));
+	border: 1px solid var(--color-error, #ef4444);
+	color: var(--color-error, #ef4444);
+	font-size: 0.8rem;
+}
+
+.git-branches__success-banner {
+	padding: 8px 12px;
+	border-radius: var(--radius-md);
+	background: var(--color-success-bg, rgba(16, 185, 129, 0.1));
+	border: 1px solid var(--color-success, #10b981);
+	color: var(--color-success, #10b981);
+	font-size: 0.8rem;
+}
+
+.git-branches__empty-state {
+	color: var(--color-text-muted);
+	font-size: 0.875rem;
+	text-align: center;
+	padding: 12px 0;
+}
+
+.git-branches__no-project {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	height: 100%;
+	color: var(--color-text-muted);
+	font-size: 0.875rem;
+}
+
+.git-branches__note {
+	font-size: 0.75rem;
+	color: var(--color-text-dim);
+}
+
 /* ── Shared button primitives (used in modal and elsewhere) ─────────────── */
 
 .btn {

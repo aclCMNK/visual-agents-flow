@@ -251,6 +251,10 @@ export interface AgentFlowState {
    * When true, the global Export modal portal is shown above all overlays.
    */
   exportModalOpen: boolean;
+  /**
+   * When true, the global Git Integration modal portal is shown above all overlays.
+   */
+  gitModalOpen: boolean;
 }
 
 /** Actions for the flow store */
@@ -300,6 +304,10 @@ export interface AgentFlowActions {
   openExportModal(): void;
   /** Close the global Export modal portal */
   closeExportModal(): void;
+  /** Open the global Git Integration modal portal */
+  openGitModal(): void;
+  /** Close the global Git Integration modal portal */
+  closeGitModal(): void;
   addLink(fromAgentId: string, toAgentId: string): void;
   /** Delete a link by id */
   deleteLink(id: string): void;
@@ -400,6 +408,7 @@ const initialState: AgentFlowState = {
   profileModalTarget: null,
   permissionsModalTarget: null,
   exportModalOpen: false,
+  gitModalOpen: false,
 };
 
 // ── Store ──────────────────────────────────────────────────────────────────
@@ -535,6 +544,14 @@ export const useAgentFlowStore = create<AgentFlowStore>((set) => ({
     set({ exportModalOpen: false });
   },
 
+  openGitModal() {
+    set({ gitModalOpen: true });
+  },
+
+  closeGitModal() {
+    set({ gitModalOpen: false });
+  },
+
   addLink(fromAgentId, toAgentId) {
     // Prevent self-connections
     if (fromAgentId === toAgentId) return;
@@ -641,6 +658,7 @@ export const useAgentFlowStore = create<AgentFlowStore>((set) => ({
       profileModalTarget: null,
       permissionsModalTarget: null,
       exportModalOpen: false,
+      gitModalOpen: false,
     });
   },
 
@@ -714,6 +732,7 @@ export const useAgentFlowStore = create<AgentFlowStore>((set) => ({
       profileModalTarget: null,
       permissionsModalTarget: null,
       exportModalOpen: false,
+      gitModalOpen: false,
     });
   },
 

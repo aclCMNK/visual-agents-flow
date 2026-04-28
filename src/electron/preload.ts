@@ -62,7 +62,7 @@
  *     survive the bridge. Never pass class instances, Maps, Sets, or functions.
  */
 
-import os from "os";
+import os from "node:os";
 import { contextBridge, ipcRenderer } from "electron";
 import { IPC_CHANNELS } from "./bridge.types.ts";
 import type {
@@ -110,6 +110,18 @@ import type {
 	SaveGitCredentialsRequest,
 	CloneProgressEvent,
 	GitHubFetchRequest,
+	GitListBranchesRequest,
+	GitListBranchesResponse,
+	GitGetRemoteDiffRequest,
+	GitGetRemoteDiffResponse,
+	GitFetchAndPullRequest,
+	GitFetchAndPullResponse,
+	GitPullBranchRequest,
+	GitPullBranchResponse,
+	GitCheckoutBranchRequest,
+	GitCheckoutBranchResponse,
+	GitGetBranchCommitsRequest,
+	GitGetBranchCommitsResponse,
 	// ── Folder Explorer ───────────────────────────────────────────────────────
 	FolderExplorerListRequest,
 	FolderExplorerStatRequest,
@@ -475,6 +487,40 @@ const bridge: AgentsFlowBridge = {
 
 	getGitRemoteOrigin(projectDir: string): Promise<string | null> {
 		return ipcRenderer.invoke(IPC_CHANNELS.GET_GIT_REMOTE_ORIGIN, projectDir);
+	},
+
+	gitListBranches(
+		req: GitListBranchesRequest,
+	): Promise<GitListBranchesResponse> {
+		return ipcRenderer.invoke(IPC_CHANNELS.GIT_LIST_BRANCHES, req);
+	},
+
+	gitGetRemoteDiff(
+		req: GitGetRemoteDiffRequest,
+	): Promise<GitGetRemoteDiffResponse> {
+		return ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_REMOTE_DIFF, req);
+	},
+
+	gitFetchAndPull(
+		req: GitFetchAndPullRequest,
+	): Promise<GitFetchAndPullResponse> {
+		return ipcRenderer.invoke(IPC_CHANNELS.GIT_FETCH_AND_PULL, req);
+	},
+
+	gitPullBranch(req: GitPullBranchRequest): Promise<GitPullBranchResponse> {
+		return ipcRenderer.invoke(IPC_CHANNELS.GIT_PULL_BRANCH, req);
+	},
+
+	gitCheckoutBranch(
+		req: GitCheckoutBranchRequest,
+	): Promise<GitCheckoutBranchResponse> {
+		return ipcRenderer.invoke(IPC_CHANNELS.GIT_CHECKOUT_BRANCH, req);
+	},
+
+	gitGetBranchCommits(
+		req: GitGetBranchCommitsRequest,
+	): Promise<GitGetBranchCommitsResponse> {
+		return ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_BRANCH_COMMITS, req);
 	},
 };
 

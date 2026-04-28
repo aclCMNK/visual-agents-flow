@@ -94,6 +94,12 @@ const _stub: AgentsFlowBridge = {
 	readAgentAdataRaw: () => notAvailable("readAgentAdataRaw"),
 	// Git remote origin detection
 	getGitRemoteOrigin: () => Promise.resolve(null),
+	gitListBranches: () => notAvailable("gitListBranches"),
+	gitGetRemoteDiff: () => notAvailable("gitGetRemoteDiff"),
+	gitFetchAndPull: () => notAvailable("gitFetchAndPull"),
+	gitPullBranch: () => notAvailable("gitPullBranch"),
+	gitCheckoutBranch: () => notAvailable("gitCheckoutBranch"),
+	gitGetBranchCommits: () => notAvailable("gitGetBranchCommits"),
 };
 
 function getBridge(): AgentsFlowBridge {
