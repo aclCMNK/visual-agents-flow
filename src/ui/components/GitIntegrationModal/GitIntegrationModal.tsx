@@ -1,15 +1,21 @@
 import { useEffect, useCallback, useState } from "react";
 import type { MouseEvent } from "react";
+import { GitConfigPanel } from "./GitConfigPanel.tsx";
 import { GitBranchesPanel } from "./GitBranchesPanel.tsx";
 import { GitChangesPanel } from "./GitChangesPanel.tsx";
+import { useProjectStore } from "../../store/projectStore.ts";
+import { useGitConfig } from "../../hooks/useGitConfig.ts";
 
-type GitSection = "branches" | "changes";
+type GitSection = "config" | "branches" | "changes";
 
 export interface GitIntegrationModalProps {
   onClose: () => void;
 }
 
 export function GitIntegrationModal({ onClose }: GitIntegrationModalProps) {
+	const projectDir = useProjectStore((s) => s.project?.projectDir ?? null);
+	const gitConfig = useGitConfig(projectDir);
+
   const handleBackdropClick = useCallback(
     (e: MouseEvent<HTMLDivElement>) => {
       if (e.target === e.currentTarget) {
@@ -30,7 +36,7 @@ export function GitIntegrationModal({ onClose }: GitIntegrationModalProps) {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
-  const [activeSection, setActiveSection] = useState<GitSection>("branches");
+	const [activeSection, setActiveSection] = useState<GitSection>("config");
 
   return (
     <div
@@ -62,6 +68,15 @@ export function GitIntegrationModal({ onClose }: GitIntegrationModalProps) {
               aria-label="Git sections"
             >
               <div role="tablist" aria-orientation="vertical">
+					<button
+						className={`git-modal__sidebar-btn${activeSection === "config" ? " git-modal__sidebar-btn--active" : ""}`}
+						onClick={() => setActiveSection("config")}
+						role="tab"
+						aria-selected={activeSection === "config"}
+						aria-controls="git-modal__content"
+					>
+						Config
+					</button>
                 <button
                   className={`git-modal__sidebar-btn${activeSection === "branches" ? " git-modal__sidebar-btn--active" : ""}`}
                   onClick={() => setActiveSection("branches")}
@@ -82,10 +97,15 @@ export function GitIntegrationModal({ onClose }: GitIntegrationModalProps) {
                 </button>
               </div>
             </nav>
-
+            
             <div id="git-modal__content" className="git-modal__content" role="tabpanel">
-              {activeSection === "branches" && <GitBranchesPanel />}
-              {activeSection === "changes" && <GitChangesPanel />}
+				{activeSection === "config" && <GitConfigPanel projectDir={projectDir} gitConfig={gitConfig} />}
+              {activeSection === "branches" && (
+					<GitBranchesPanel protectedBranch={gitConfig.state.protectedBranch} />
+				)}
+              {activeSection === "changes" && (
+					<GitChangesPanel protectedBranch={gitConfig.state.protectedBranch} />
+				)}
             </div>
           </div>
         </div>

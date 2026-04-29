@@ -56,7 +56,6 @@ import path, { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import { registerIpcHandlers } from "./ipc-handlers.ts";
-import { registerGitHandlers } from "./ipc-handlers.ts";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
@@ -260,7 +259,6 @@ app.whenReady().then(() => {
 
 	// Register all IPC handlers before creating the window
 	registerIpcHandlers();
-	registerGitHandlers();
 	console.log("[main] IPC handlers registered");
 
 	createWindow();

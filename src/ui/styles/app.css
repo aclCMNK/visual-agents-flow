@@ -31,6 +31,7 @@
 	--color-warning-bg: rgba(251, 191, 36, 0.1);
 	--color-info: #60a5fa;
 	--color-info-bg: rgba(96, 165, 250, 0.1);
+	--color-info-border: #60a5fa;
 	--color-success: #34d399;
 	--color-success-bg: rgba(52, 211, 153, 0.1);
 	--color-text-primary: var(--color-text);
@@ -1999,6 +2000,310 @@ button:disabled {
 	padding: 12px 0;
 }
 
+/* ── Git Config Panel ────────────────────────────────────────────────────── */
+
+.git-config {
+	display: flex;
+	flex-direction: column;
+	gap: 0;
+	height: 100%;
+	overflow-y: auto;
+}
+
+.git-config__section {
+	padding: 1rem 1.25rem;
+}
+
+.git-config__section-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: 0.75rem;
+}
+
+.git-config__section-title {
+	font-size: 0.8rem;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	color: var(--color-text-muted);
+}
+
+.git-config__no-git-description {
+	font-size: 0.875rem;
+	color: var(--color-text-muted);
+	margin-bottom: 1rem;
+	line-height: 1.5;
+}
+
+.git-config__repo-row {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	font-size: 0.875rem;
+	color: var(--color-text-primary);
+}
+
+.git-config__repo-icon {
+	color: var(--color-success);
+	font-size: 1rem;
+	flex-shrink: 0;
+}
+
+.git-config__remote-url {
+	font-family: monospace;
+	font-size: 0.8rem;
+	color: var(--color-text-primary);
+	word-break: break-all;
+	margin-bottom: 0.5rem;
+	padding: 0.4rem 0.6rem;
+	background: var(--color-input-bg);
+	border: 1px solid var(--color-border);
+	border-radius: 4px;
+}
+
+.git-config__remote-actions {
+	display: flex;
+	gap: 0.5rem;
+	margin-top: 0.75rem;
+}
+
+.git-config__field {
+	display: flex;
+	flex-direction: column;
+	gap: 0.35rem;
+	margin-bottom: 0.75rem;
+}
+
+.git-config__label {
+	font-size: 0.8rem;
+	font-weight: 500;
+	color: var(--color-text-muted);
+}
+
+.git-config__input {
+	width: 100%;
+	padding: 0.4rem 0.6rem;
+	border-radius: 4px;
+	border: 1px solid var(--color-border);
+	background: var(--color-input-bg);
+	color: var(--color-text-primary);
+	font-size: 0.875rem;
+	font-family: monospace;
+	outline: none;
+	transition: border-color 0.15s;
+	box-sizing: border-box;
+}
+
+.git-config__input:focus {
+	border-color: var(--color-accent);
+}
+
+.git-config__input--error {
+	border-color: var(--color-error);
+}
+
+.git-config__hint {
+	font-size: 0.75rem;
+	color: var(--color-text-muted);
+}
+
+.git-config__validation-error {
+	font-size: 0.75rem;
+	color: var(--color-error);
+}
+
+.git-config__form-actions {
+	display: flex;
+	gap: 0.5rem;
+	margin-top: 0.5rem;
+	justify-content: flex-end;
+}
+
+.git-config__credentials {
+	overflow: hidden;
+	max-height: 0;
+	opacity: 0;
+	transition:
+		max-height 0.25s ease,
+		opacity 0.2s ease;
+	margin-bottom: 0;
+}
+
+.git-config__credentials--visible {
+	max-height: 240px;
+	opacity: 1;
+	margin-bottom: 0.75rem;
+}
+
+.git-config__credentials fieldset {
+	border: 1px solid var(--color-border);
+	border-radius: 4px;
+	padding: 0.75rem;
+	margin: 0;
+}
+
+.git-config__credentials legend {
+	font-size: 0.75rem;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	color: var(--color-text-muted);
+	padding: 0 0.25rem;
+}
+
+.git-config__password-wrapper {
+	position: relative;
+	display: flex;
+	align-items: center;
+}
+
+.git-config__password-wrapper .git-config__input {
+	padding-right: 2.5rem;
+}
+
+.git-config__password-toggle {
+	position: absolute;
+	right: 0.5rem;
+	background: none;
+	border: none;
+	cursor: pointer;
+	color: var(--color-text-muted);
+	padding: 0.25rem;
+	display: flex;
+	align-items: center;
+}
+
+.git-config__password-toggle:hover {
+	color: var(--color-text-primary);
+}
+
+.git-config__identity fieldset {
+	border: 1px solid var(--color-border);
+	border-radius: 4px;
+	padding: 0.75rem;
+	margin: 0 0 0.75rem 0;
+}
+
+.git-config__identity legend {
+	font-size: 0.75rem;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	color: var(--color-text-muted);
+	padding: 0 0.25rem;
+}
+
+.git-config__no-project {
+	padding: 1rem;
+	color: var(--color-text-muted);
+	font-size: 0.875rem;
+}
+
+.git-config__loading {
+	padding: 1rem 1.25rem;
+	color: var(--color-text-muted);
+	font-size: 0.875rem;
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+}
+
+.git-config__loading-spinner {
+	display: inline-block;
+	width: 12px;
+	height: 12px;
+	border: 2px solid rgba(255, 255, 255, 0.3);
+	border-top-color: var(--color-text-muted);
+	border-radius: 50%;
+	animation: spin 0.7s linear infinite;
+	vertical-align: middle;
+}
+
+.git-config__detecting-branch {
+	padding: 0 1.25rem 0.75rem;
+	font-size: 0.8rem;
+	color: var(--color-text-muted);
+}
+
+.git-config__protected-branch {
+	display: flex;
+	align-items: center;
+	gap: 0.45rem;
+	font-size: 0.9rem;
+	margin-bottom: 0.5rem;
+}
+
+.git-config__divergence-notice {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	margin: 0 1.25rem 0.75rem;
+	padding: 10px 12px;
+	background: var(--color-info-bg);
+	border: 1px solid rgba(96, 165, 250, 0.35);
+	border-left: 3px solid var(--color-info-border);
+	border-radius: var(--radius-md);
+}
+
+.git-config__divergence-notice-icon {
+	font-size: 1rem;
+	line-height: 1.2;
+	color: var(--color-info);
+	flex-shrink: 0;
+}
+
+.git-config__divergence-notice-body {
+	flex: 1;
+	min-width: 0;
+}
+
+.git-config__divergence-notice-body strong {
+	display: block;
+	font-size: 0.85rem;
+	color: var(--color-text);
+	margin-bottom: 2px;
+}
+
+.git-config__divergence-notice-body p {
+	font-size: 0.8rem;
+	color: var(--color-text-muted);
+	line-height: 1.45;
+}
+
+.git-config__divergence-notice-dismiss {
+	border: none;
+	background: transparent;
+	color: var(--color-text-muted);
+	cursor: pointer;
+	font-size: 0.85rem;
+	line-height: 1;
+	padding: 2px 4px;
+	border-radius: var(--radius-sm);
+	flex-shrink: 0;
+}
+
+.git-config__divergence-notice-dismiss:hover {
+	color: var(--color-text);
+	background: var(--color-surface-2);
+}
+
+.git-config__status {
+	padding: 0 1.25rem 0.75rem;
+	font-size: 0.8rem;
+	color: var(--color-text-muted);
+}
+
+.git-config__protected-icon {
+	font-size: 0.95rem;
+}
+
+.git-config__branch-name {
+	font-family: monospace;
+	color: var(--color-text-primary);
+	font-weight: 600;
+}
+
 .git-branches__no-project {
 	display: flex;
 	align-items: center;
@@ -2056,6 +2361,11 @@ button:disabled {
 .git-changes__branch-name {
 	font-family: monospace;
 	color: var(--color-text-primary);
+}
+
+.git-changes__protected-badge {
+	font-size: 0.9rem;
+	line-height: 1;
 }
 
 .git-changes__field {
@@ -2260,6 +2570,16 @@ button:disabled {
 	display: flex;
 	justify-content: flex-end;
 	margin-top: 0.5rem;
+}
+
+.git-changes__protected-branch-error {
+	padding: 8px 12px;
+	border-radius: var(--radius-md);
+	background: var(--color-error-bg, rgba(239, 68, 68, 0.1));
+	border: 1px solid var(--color-error, #ef4444);
+	color: var(--color-error, #ef4444);
+	font-size: 0.8rem;
+	margin-bottom: 8px;
 }
 
 .git-changes__spinner {

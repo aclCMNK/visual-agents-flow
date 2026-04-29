@@ -148,6 +148,7 @@ import { handleRenameAgentFolder } from "./rename-agent-folder.ts";
 import { exportActiveSkills } from "./skill-export-handlers.ts";
 import { registerGitBranchesHandlers } from "./git-branches.ts";
 import { registerGitChangesHandlers } from "./git-changes.ts";
+import { registerGitConfigHandlers } from "./git-config.ts";
 
 // ── Folder Explorer ────────────────────────────────────────────────────────
 // The folder-explorer handlers live in the electron-main module tree because
@@ -2569,6 +2570,7 @@ export function registerIpcHandlers(): void {
 	// matches user-observable startup priority.
 	// ══════════════════════════════════════════════════════════════════════
 	registerFolderExplorerHandlers(ipcMain);
+	registerGitConfigHandlers(ipcMain);
 	registerGitBranchesHandlers(ipcMain);
 	registerGitChangesHandlers(ipcMain);
 
@@ -2989,6 +2991,13 @@ export function registerIpcHandlers(): void {
 		},
 	);
 
+	ipcMain.handle(
+		IPC_CHANNELS.GET_GIT_REMOTE_ORIGIN,
+		async (_event, projectDir: string): Promise<string | null> => {
+			return detectGitRemoteOrigin(projectDir);
+		},
+	);
+
 	// ══════════════════════════════════════════════════════════════════════
 	// Git Clone Validate handler
 	//
@@ -3123,7 +3132,7 @@ export function registerIpcHandlers(): void {
 	);
 
 	ipcMain.handle(
-		IPC_CHANNELS.GIT_SAVE_CREDENTIALS,
+		IPC_CHANNELS.GIT_CLONE_SAVE_CREDENTIALS,
 		async (
 			_event,
 			req: SaveGitCredentialsRequest,
@@ -3148,24 +3157,6 @@ export function registerIpcHandlers(): void {
 			}
 
 			return result;
-		},
-	);
-}
-
-// ── registerGitHandlers ────────────────────────────────────────────────────
-
-/**
- * Registers the GET_GIT_REMOTE_ORIGIN IPC handler.
- *
- * Returns the URL of the remote `origin` for the given project directory,
- * or null when the directory is not a Git repo, has no origin, or git is
- * unavailable. Never throws — all errors resolve to null.
- */
-export function registerGitHandlers(): void {
-	ipcMain.handle(
-		IPC_CHANNELS.GET_GIT_REMOTE_ORIGIN,
-		async (_event, projectDir: string): Promise<string | null> => {
-			return detectGitRemoteOrigin(projectDir);
 		},
 	);
 }

@@ -7,6 +7,7 @@ import type { UiGitError } from "../../utils/gitErrorUtils.ts";
 interface CurrentBranchSectionProps {
 	currentBranch: string;
 	isLoading: boolean;
+	isProtected: boolean;
 }
 
 interface CommitFormSectionProps {
@@ -34,6 +35,7 @@ interface CommitActionSectionProps {
 	commitMessage: string;
 	hasChanges: boolean;
 	isCommitting: boolean;
+	isProtectedBranch: boolean;
 	commitError: UiGitError | null;
 	lastCommitSuccess: string | null;
 	onAddAndCommit: () => void;
@@ -74,7 +76,11 @@ function getStatusClass(
 	return "modified";
 }
 
-function CurrentBranchSection({ currentBranch, isLoading }: CurrentBranchSectionProps) {
+function CurrentBranchSection({
+	currentBranch,
+	isLoading,
+	isProtected,
+}: CurrentBranchSectionProps) {
 	return (
 		<section className="git-changes__section" aria-labelledby="git-changes-branch-title">
 			<header className="git-changes__section-header">
@@ -94,6 +100,15 @@ function CurrentBranchSection({ currentBranch, isLoading }: CurrentBranchSection
 					<span className="git-changes__branch-name">
 						{currentBranch || "(detached HEAD)"}
 					</span>
+					{isProtected && (
+						<span
+							className="git-changes__protected-badge"
+							aria-label="Protected branch"
+							title="This is the protected main branch. Commits are blocked."
+						>
+							🔒
+						</span>
+					)}
 				</p>
 			)}
 		</section>
@@ -286,7 +301,11 @@ function ChangedFilesSection(props: ChangedFilesSectionProps) {
 }
 
 function CommitActionSection(props: CommitActionSectionProps) {
-	const canCommit = props.commitMessage.trim().length > 0 && props.hasChanges && !props.isCommitting;
+	const canCommit =
+		props.commitMessage.trim().length > 0 &&
+		props.hasChanges &&
+		!props.isCommitting &&
+		!props.isProtectedBranch;
 
 	return (
 		<section
@@ -298,6 +317,17 @@ function CommitActionSection(props: CommitActionSectionProps) {
 					Stage &amp; Commit
 				</h3>
 			</header>
+
+			{props.isProtectedBranch && (
+				<div
+					className="git-changes__protected-branch-error"
+					role="alert"
+					aria-live="assertive"
+				>
+					<span aria-hidden="true">🔒</span>{" "}
+					You cannot commit or push directly to the main branch.
+				</div>
+			)}
 
 			{props.commitError && (
 				<div
@@ -349,7 +379,11 @@ function CommitActionSection(props: CommitActionSectionProps) {
 	);
 }
 
-export function GitChangesPanel() {
+export interface GitChangesPanelProps {
+	protectedBranch: string | null;
+}
+
+export function GitChangesPanel({ protectedBranch }: GitChangesPanelProps) {
 	const projectDir = useProjectStore((s) => s.project?.projectDir ?? null);
 	const {
 		state,
@@ -358,7 +392,12 @@ export function GitChangesPanel() {
 		setCommitDescription,
 		addAndCommit,
 		clearFeedback,
-	} = useGitChanges(projectDir);
+	} = useGitChanges(projectDir, protectedBranch);
+
+	const isProtectedBranch =
+		Boolean(protectedBranch) &&
+		Boolean(state.currentBranch) &&
+		state.currentBranch === protectedBranch;
 
 	useEffect(() => {
 		if (!state.lastCommitSuccess) return;
@@ -375,6 +414,7 @@ export function GitChangesPanel() {
 			<CurrentBranchSection
 				currentBranch={state.currentBranch}
 				isLoading={state.isLoadingStatus}
+				isProtected={isProtectedBranch}
 			/>
 
 			<div className="git-branches__divider" />
@@ -406,6 +446,7 @@ export function GitChangesPanel() {
 				commitMessage={state.commitMessage}
 				hasChanges={state.files.length > 0}
 				isCommitting={state.isCommitting}
+				isProtectedBranch={isProtectedBranch}
 				commitError={state.commitError}
 				lastCommitSuccess={state.lastCommitSuccess}
 				onAddAndCommit={() => {

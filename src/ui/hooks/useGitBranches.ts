@@ -13,7 +13,6 @@ import {
 interface GitBranchesState {
 	currentBranch: string;
 	branches: GitBranch[];
-	selectableBranches: GitBranch[];
 	selectedBranch: string;
 	incomingCommits: GitCommit[];
 	aheadCount: number;
@@ -48,6 +47,7 @@ type GitBranchesAction =
 			type: "LOAD_BRANCHES_SUCCESS";
 			branches: GitBranch[];
 			currentBranch: string;
+			preferredBranch: string | null;
 	  }
 	| { type: "LOAD_BRANCHES_ERROR"; error: UiGitError }
 	| { type: "SELECT_BRANCH"; branch: string }
@@ -78,12 +78,9 @@ type GitBranchesAction =
 	| { type: "CLEAR_CREATE_BRANCH_FEEDBACK" }
 	| { type: "CLEAR_ERRORS" };
 
-const PROTECTED_BRANCHES = ["main", "master"];
-
 const initialState: GitBranchesState = {
 	currentBranch: "",
 	branches: [],
-	selectableBranches: [],
 	selectedBranch: "",
 	incomingCommits: [],
 	aheadCount: 0,
@@ -116,7 +113,7 @@ function reducer(
 	state: GitBranchesState,
 	action: GitBranchesAction,
 ): GitBranchesState {
-	switch (action.type) {
+		switch (action.type) {
 		case "LOAD_BRANCHES_START":
 			return {
 				...state,
@@ -124,10 +121,12 @@ function reducer(
 				branchesError: null,
 			};
 		case "LOAD_BRANCHES_SUCCESS": {
-			const selectableBranches = action.branches.filter(
-				(b) => !PROTECTED_BRANCHES.includes(b.name) && !b.isRemote,
-			);
+			const selectableBranches = action.branches.filter((b) => !b.isRemote);
+			const preferredBranch = (action.preferredBranch ?? "").trim();
 			const selectedBranch =
+				(preferredBranch
+					? selectableBranches.find((b) => b.name === preferredBranch)?.name
+					: undefined) ??
 				selectableBranches.find((b) => b.isCurrent)?.name ??
 				selectableBranches[0]?.name ??
 				"";
@@ -137,7 +136,6 @@ function reducer(
 				branchesError: null,
 				branches: action.branches,
 				currentBranch: action.currentBranch,
-				selectableBranches,
 				selectedBranch,
 			};
 		}
@@ -315,7 +313,10 @@ function getBridge() {
 	return null;
 }
 
-export function useGitBranches(projectDir: string | null) {
+export function useGitBranches(
+	projectDir: string | null,
+	protectedBranch: string | null,
+) {
 	const [state, dispatch] = useReducer(reducer, initialState);
 
 	const loadBranches = useCallback(async () => {
@@ -338,12 +339,50 @@ export function useGitBranches(projectDir: string | null) {
 			});
 			return;
 		}
+
+		const desiredProtectedBranch = (protectedBranch ?? "").trim();
+		const hasLocalProtectedBranch =
+			desiredProtectedBranch.length > 0 &&
+			res.branches.some(
+				(branch) => !branch.isRemote && branch.name === desiredProtectedBranch,
+			);
+
+		let branches = res.branches;
+		let currentBranch = res.currentBranch;
+
+		if (desiredProtectedBranch.length > 0 && !hasLocalProtectedBranch) {
+			const ensureRes = await bridge.gitEnsureLocalBranch({
+				projectDir,
+				branch: desiredProtectedBranch,
+			});
+			if (!ensureRes.ok) {
+				dispatch({
+					type: "LOAD_BRANCHES_ERROR",
+					error: mapGitErrorToMessage(ensureRes),
+				});
+				return;
+			}
+
+			const refreshedRes = await bridge.gitListBranches({ projectDir });
+			if (!refreshedRes.ok) {
+				dispatch({
+					type: "LOAD_BRANCHES_ERROR",
+					error: mapGitErrorToMessage(refreshedRes),
+				});
+				return;
+			}
+
+			branches = refreshedRes.branches;
+			currentBranch = refreshedRes.currentBranch;
+		}
+
 		dispatch({
 			type: "LOAD_BRANCHES_SUCCESS",
-			branches: res.branches,
-			currentBranch: res.currentBranch,
+			branches,
+			currentBranch,
+			preferredBranch: protectedBranch,
 		});
-	}, [projectDir]);
+	}, [projectDir, protectedBranch]);
 
 	const loadRemoteDiff = useCallback(async () => {
 		if (!projectDir) return;
@@ -508,6 +547,7 @@ export function useGitBranches(projectDir: string | null) {
 				projectDir,
 				newBranchName,
 				sourceBranch,
+				protectedBranch: protectedBranch ?? undefined,
 			});
 			if (!res.ok) {
 				dispatch({
@@ -521,7 +561,7 @@ export function useGitBranches(projectDir: string | null) {
 			await loadBranches();
 			await loadRemoteDiff();
 		},
-		[projectDir, loadBranches, loadRemoteDiff],
+		[projectDir, protectedBranch, loadBranches, loadRemoteDiff],
 	);
 
 	const selectBranch = useCallback((branch: string) => {

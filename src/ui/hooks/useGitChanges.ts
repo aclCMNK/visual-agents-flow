@@ -137,7 +137,10 @@ function getBridge() {
 	return null;
 }
 
-export function useGitChanges(projectDir: string | null) {
+export function useGitChanges(
+	projectDir: string | null,
+	protectedBranch: string | null,
+) {
 	const [state, dispatch] = useReducer(reducer, initialState);
 
 	const loadStatus = useCallback(async () => {
@@ -186,6 +189,22 @@ export function useGitChanges(projectDir: string | null) {
 
 	const addAndCommit = useCallback(async () => {
 		if (!projectDir) return;
+
+		// Protected branch guard — absolute block, no git command is ever executed
+		if (
+			protectedBranch &&
+			state.currentBranch &&
+			state.currentBranch === protectedBranch
+		) {
+			dispatch({
+				type: "COMMIT_ERROR",
+				error: toUiGitError(
+					"You cannot commit or push directly to the main branch.",
+				),
+			});
+			return;
+		}
+
 		const bridge = getBridge();
 		if (!bridge) {
 			dispatch({
@@ -212,6 +231,7 @@ export function useGitChanges(projectDir: string | null) {
 				projectDir,
 				message: trimmedMessage,
 				description: description.trim().length > 0 ? description : undefined,
+				protectedBranch: protectedBranch ?? undefined,
 			});
 
 			if (!result.ok) {
@@ -231,7 +251,14 @@ export function useGitChanges(projectDir: string | null) {
 				error: toUiGitError("Unexpected error during commit."),
 			});
 		}
-	}, [projectDir, state.commitMessage, state.commitDescription, loadStatus]);
+	}, [
+		projectDir,
+		protectedBranch,
+		state.currentBranch,
+		state.commitMessage,
+		state.commitDescription,
+		loadStatus,
+	]);
 
 	const clearFeedback = useCallback(() => {
 		dispatch({ type: "CLEAR_COMMIT_FEEDBACK" });

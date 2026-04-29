@@ -21,6 +21,7 @@ interface RemoteChangesSectionProps {
 interface BranchSelectorSectionProps {
 	currentBranch: string;
 	selectableBranches: GitBranch[];
+	protectedBranch: string | null;
 	selectedBranch: string;
 	isLoadingBranches: boolean;
 	isPullingBranch: boolean;
@@ -42,6 +43,7 @@ interface BranchCommitsSectionProps {
 
 interface BranchCreatorSectionProps {
 	currentBranch: string;
+	protectedBranch: string | null;
 	allLocalBranches: GitBranch[];
 	isCreatingBranch: boolean;
 	createBranchError: UiGitError | null;
@@ -50,7 +52,11 @@ interface BranchCreatorSectionProps {
 	onClearCreateBranchError: () => void;
 }
 
-function validateBranchName(name: string, existingNames: string[]): string | null {
+function validateBranchName(
+	name: string,
+	existingNames: string[],
+	protectedBranch: string | null,
+): string | null {
 	if (name.length === 0) return null;
 	if (/\s/.test(name)) return "Branch name cannot contain spaces.";
 	if (!/^[a-zA-Z0-9\-]+$/.test(name)) {
@@ -61,8 +67,8 @@ function validateBranchName(name: string, existingNames: string[]): string | nul
 	if (/--/.test(name)) {
 		return "Branch name cannot contain consecutive hyphens.";
 	}
-	if (["main", "master"].includes(name.toLowerCase())) {
-		return "Cannot use 'main' or 'master' as branch name.";
+	if (protectedBranch && name === protectedBranch) {
+		return `Cannot use '${protectedBranch}' as branch name.`;
 	}
 	if (existingNames.includes(name)) {
 		return "A branch with this name already exists.";
@@ -181,6 +187,8 @@ function RemoteChangesSection(props: RemoteChangesSectionProps) {
 
 function BranchSelectorSection(props: BranchSelectorSectionProps) {
 	const isCurrentSelected = props.selectedBranch === props.currentBranch;
+	const isProtectedSelected =
+		Boolean(props.protectedBranch) && props.selectedBranch === props.protectedBranch;
 	const hasBranches = props.selectableBranches.length > 0;
 
 	return (
@@ -210,7 +218,7 @@ function BranchSelectorSection(props: BranchSelectorSectionProps) {
 				</div>
 			) : !hasBranches ? (
 				<div className="git-branches__empty-state">
-					No other branches available. (main/master excluded)
+					No branches available.
 				</div>
 			) : (
 				<div className="git-branches__selector-row">
@@ -224,7 +232,11 @@ function BranchSelectorSection(props: BranchSelectorSectionProps) {
 					>
 						{props.selectableBranches.map((branch) => (
 							<option key={branch.name} value={branch.name}>
-								{branch.name}
+								{branch.name === props.protectedBranch
+									? `🔒 ${branch.name} (protected)`
+									: branch.name.startsWith("local-changes-")
+										? `${branch.name} (saved)`
+										: branch.name}
 							</option>
 						))}
 					</select>
@@ -249,7 +261,13 @@ function BranchSelectorSection(props: BranchSelectorSectionProps) {
 							props.isCheckingOut ||
 							!props.selectedBranch ||
 							props.isPullingBranch ||
-							isCurrentSelected
+							isCurrentSelected ||
+							isProtectedSelected
+						}
+						title={
+							isProtectedSelected
+								? "Cannot checkout the protected branch directly"
+								: undefined
 						}
 						onClick={props.onCheckoutBranch}
 					>
@@ -351,7 +369,7 @@ function BranchCommitsSection(props: BranchCommitsSectionProps) {
 
 function BranchCreatorSection(props: BranchCreatorSectionProps) {
 	const [newBranchName, setNewBranchName] = useState<string>("");
-	const [sourceBranch, setSourceBranch] = useState<string>(props.currentBranch);
+	const [sourceBranch, setSourceBranch] = useState<string>("");
 	const [validationError, setValidationError] = useState<string | null>(null);
 	const orderedLocalBranches = useMemo(() => {
 		const current = props.allLocalBranches.find(
@@ -362,12 +380,41 @@ function BranchCreatorSection(props: BranchCreatorSectionProps) {
 			.sort((a, b) => a.name.localeCompare(b.name));
 		return current ? [current, ...rest] : rest;
 	}, [props.allLocalBranches, props.currentBranch]);
+	const hasLocalBranches = orderedLocalBranches.length > 0;
+	const hasRealBranches = hasLocalBranches || Boolean(props.protectedBranch);
 
-	const isFormValid = newBranchName.length > 0 && validationError === null;
+	const isFormValid =
+		hasLocalBranches &&
+		sourceBranch.length > 0 &&
+		newBranchName.length > 0 &&
+		validationError === null;
 
 	useEffect(() => {
-		setSourceBranch(props.currentBranch);
-	}, [props.currentBranch]);
+		if (orderedLocalBranches.length === 0) {
+			setSourceBranch("");
+			return;
+		}
+
+		if (
+			props.protectedBranch &&
+			orderedLocalBranches.some(
+				(branch) => branch.name === props.protectedBranch,
+			) &&
+			sourceBranch !== props.protectedBranch
+		) {
+			setSourceBranch(props.protectedBranch);
+			return;
+		}
+
+		if (
+			sourceBranch &&
+			orderedLocalBranches.some((branch) => branch.name === sourceBranch)
+		) {
+			return;
+		}
+
+		setSourceBranch(orderedLocalBranches[0]?.name ?? "");
+	}, [orderedLocalBranches, sourceBranch, props.protectedBranch]);
 
 	useEffect(() => {
 		if (props.lastCreateBranchSuccess) {
@@ -383,6 +430,7 @@ function BranchCreatorSection(props: BranchCreatorSectionProps) {
 			validateBranchName(
 				value,
 				props.allLocalBranches.map((branch) => branch.name),
+				props.protectedBranch,
 			),
 		);
 		if (props.createBranchError) {
@@ -418,17 +466,32 @@ function BranchCreatorSection(props: BranchCreatorSectionProps) {
 					className="git-branches__select"
 					value={sourceBranch}
 					onChange={(e) => setSourceBranch(e.target.value)}
-					disabled={props.isCreatingBranch}
+					disabled={props.isCreatingBranch || !hasLocalBranches}
 					aria-label="Source branch"
 				>
-					{orderedLocalBranches.map((branch) => (
-						<option key={branch.name} value={branch.name}>
-							{branch.name}
-							{branch.name === props.currentBranch ? " (current)" : ""}
+					{hasLocalBranches ? (
+						orderedLocalBranches.map((branch) => (
+							<option key={branch.name} value={branch.name}>
+								{branch.name}
+								{branch.name === props.currentBranch ? " (current)" : ""}
+								{branch.name === props.protectedBranch
+									? " 🔒 protected"
+									: ""}
+							</option>
+						))
+					) : (
+						<option value="" disabled>
+							No branches available
 						</option>
-					))}
+					)}
 				</select>
 			</div>
+
+			{!hasRealBranches && (
+				<div className="git-branches__error-banner" role="alert">
+					No branches found in this repository.
+				</div>
+			)}
 
 			<div className="git-branches__creator-row">
 				<label
@@ -472,7 +535,7 @@ function BranchCreatorSection(props: BranchCreatorSectionProps) {
 				<button
 					type="button"
 					className="btn btn--primary"
-					disabled={!isFormValid || props.isCreatingBranch}
+					disabled={!isFormValid || props.isCreatingBranch || !hasLocalBranches}
 					onClick={handleCreate}
 					aria-busy={props.isCreatingBranch}
 				>
@@ -499,7 +562,11 @@ function BranchCreatorSection(props: BranchCreatorSectionProps) {
 	);
 }
 
-export function GitBranchesPanel() {
+export interface GitBranchesPanelProps {
+	protectedBranch: string | null;
+}
+
+export function GitBranchesPanel({ protectedBranch }: GitBranchesPanelProps) {
 	const projectDir = useProjectStore((s) => s.project?.projectDir ?? null);
 	const {
 		state,
@@ -511,7 +578,26 @@ export function GitBranchesPanel() {
 		selectBranch,
 		clearErrors,
 		clearCreateBranchFeedback,
-	} = useGitBranches(projectDir);
+	} = useGitBranches(projectDir, protectedBranch);
+
+	const localBranches = useMemo(() => {
+		return state.branches.filter((b) => !b.isRemote);
+	}, [state.branches]);
+
+	const selectableBranches = localBranches;
+
+	const effectiveSelectedBranch = useMemo(() => {
+		if (selectableBranches.some((b) => b.name === state.selectedBranch)) {
+			return state.selectedBranch;
+		}
+		return selectableBranches[0]?.name ?? "";
+	}, [state.selectedBranch, selectableBranches]);
+
+	useEffect(() => {
+		if (!effectiveSelectedBranch) return;
+		if (state.selectedBranch === effectiveSelectedBranch) return;
+		selectBranch(effectiveSelectedBranch);
+	}, [effectiveSelectedBranch, state.selectedBranch, selectBranch]);
 
 	useEffect(() => {
 		if (
@@ -558,8 +644,9 @@ export function GitBranchesPanel() {
 
 			<BranchSelectorSection
 				currentBranch={state.currentBranch}
-				selectableBranches={state.selectableBranches}
-				selectedBranch={state.selectedBranch}
+				selectableBranches={selectableBranches}
+				protectedBranch={protectedBranch}
+				selectedBranch={effectiveSelectedBranch}
 				isLoadingBranches={state.isLoadingBranches}
 				isPullingBranch={state.isPullingBranch}
 				isCheckingOut={state.isCheckingOut}
@@ -568,12 +655,12 @@ export function GitBranchesPanel() {
 				checkoutSuccess={state.lastCheckoutSuccess}
 				onSelectBranch={selectBranch}
 				onPullBranch={() => {
-					if (!state.selectedBranch) return;
-					void pullBranch(state.selectedBranch);
+					if (!effectiveSelectedBranch) return;
+					void pullBranch(effectiveSelectedBranch);
 				}}
 				onCheckoutBranch={() => {
-					if (!state.selectedBranch) return;
-					void checkoutBranch(state.selectedBranch);
+					if (!effectiveSelectedBranch) return;
+					void checkoutBranch(effectiveSelectedBranch);
 				}}
 			/>
 
@@ -581,7 +668,8 @@ export function GitBranchesPanel() {
 
 			<BranchCreatorSection
 				currentBranch={state.currentBranch}
-				allLocalBranches={state.branches.filter((branch) => !branch.isRemote)}
+				protectedBranch={protectedBranch}
+				allLocalBranches={localBranches}
 				isCreatingBranch={state.isCreatingBranch}
 				createBranchError={state.createBranchError}
 				lastCreateBranchSuccess={state.lastCreateBranchSuccess}
@@ -594,7 +682,7 @@ export function GitBranchesPanel() {
 			<div className="git-branches__divider" />
 
 			<BranchCommitsSection
-				selectedBranch={state.selectedBranch}
+				selectedBranch={effectiveSelectedBranch}
 				commits={state.branchCommits}
 				isLoading={state.isLoadingCommits}
 				error={state.commitsError}

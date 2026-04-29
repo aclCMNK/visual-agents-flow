@@ -452,12 +452,12 @@ export const IPC_CHANNELS = {
 	// SECURITY: token is used only for the API call — never logged or persisted.
 	GIT_CLONE_VALIDATE: "git:clone:validate",
 
-	// ── Git Save Credentials channel ────────────────────────────────────────────
+	// ── Git Clone Save Credentials channel ──────────────────────────────────────
 	//
 	// Writes GIT_USERNAME and GIT_TOKEN into <projectDir>/.env (overwrite) and
 	// ensures .env is listed in <projectDir>/.gitignore.
 	// SECURITY: token must never be logged or persisted elsewhere.
-	GIT_SAVE_CREDENTIALS: "git:save-credentials",
+	GIT_CLONE_SAVE_CREDENTIALS: "git:clone:save-credentials",
 
 	// ── Asset move channel ─────────────────────────────────────────────────────
 	//
@@ -475,6 +475,26 @@ export const IPC_CHANNELS = {
 
 	// ── Git Branches channels ──────────────────────────────────────────────────
 
+	// Detecta la configuración base de Git del directorio (hasGit + remote origin).
+	GIT_GET_CONFIG: "git:get-config",
+
+	// Ejecuta `git init` en el directorio del proyecto.
+	GIT_INIT: "git:init",
+
+	// Agrega o actualiza el remote origin.
+	GIT_SET_REMOTE: "git:set-remote",
+
+	// Guarda credenciales para repos privados (helper de Git).
+	GIT_SAVE_CREDENTIALS: "git:save-credentials",
+
+	// Configura user.name y user.email en scope local del repo.
+	GIT_SET_IDENTITY: "git:set-identity",
+
+	// Detecta la rama principal del repositorio remoto.
+	// Retorna { ok: true, branch: string | null }.
+	// branch === null significa que no pudo detectarse automáticamente.
+	GIT_DETECT_MAIN_BRANCH: "git:detect-main-branch",
+
 	// Lista todas las ramas locales y remotas del repositorio.
 	// Retorna la rama activa actual y el listado completo.
 	GIT_LIST_BRANCHES: "git:list-branches",
@@ -491,6 +511,15 @@ export const IPC_CHANNELS = {
 
 	// Ejecuta git checkout para cambiar a la rama especificada.
 	GIT_CHECKOUT_BRANCH: "git:checkout-branch",
+
+	// Asegura que la rama exista localmente desde origin y sincroniza con pull.
+	// Si no existe local: fetch + checkout -b <branch> origin/<branch> (+ pull).
+	// Si ya existe local: checkout + pull.
+	GIT_ENSURE_LOCAL_BRANCH: "git:ensure-local-branch",
+
+	// Detecta divergencia local vs remoto y, si existe, guarda cambios en una
+	// rama de seguridad temporal antes de sincronizar la rama principal remota.
+	GIT_HANDLE_DIVERGENCE: "git:handle-divergence",
 
 	// Obtiene el historial de commits de una rama específica.
 	GIT_GET_BRANCH_COMMITS: "git:get-branch-commits",
@@ -1901,6 +1930,11 @@ export type GitOperationErrorCode =
 	| "E_NOT_A_GIT_REPO"
 	| "E_NO_REMOTE"
 	| "E_GIT_NOT_FOUND"
+	| "E_INIT_FAILED"
+	| "E_REMOTE_ALREADY_EXISTS"
+	| "E_INVALID_REMOTE_URL"
+	| "E_CREDENTIALS_SAVE_FAILED"
+	| "E_IDENTITY_SET_FAILED"
 	| "E_MERGE_CONFLICT"
 	| "E_DIRTY_WORKING_DIR"
 	| "E_BRANCH_NOT_FOUND"
@@ -1908,6 +1942,8 @@ export type GitOperationErrorCode =
 	| "E_INVALID_BRANCH_NAME"
 	| "E_NOTHING_TO_COMMIT"
 	| "E_EMPTY_COMMIT_MSG"
+	| "E_PROTECTED_BRANCH"
+	| "E_DIVERGENCE_SAVE_FAILED"
 	| "E_TIMEOUT"
 	| "E_UNKNOWN";
 
@@ -1923,6 +1959,97 @@ export interface GitOperationError {
 	/** Output raw del comando git (para debugging) */
 	rawOutput?: string;
 }
+
+// ── GIT_GET_CONFIG / GIT_INIT / GIT_SET_REMOTE / GIT_SAVE_CREDENTIALS / GIT_SET_IDENTITY ──
+
+export interface GitGetConfigRequest {
+	projectDir: string;
+}
+
+export interface GitGetConfigResult {
+	ok: true;
+	hasGit: boolean;
+	remoteUrl: string | null;
+}
+
+export type GitGetConfigResponse = GitGetConfigResult | GitOperationError;
+
+export interface GitInitRequest {
+	projectDir: string;
+}
+
+export interface GitInitResult {
+	ok: true;
+	output: string;
+}
+
+export type GitInitResponse = GitInitResult | GitOperationError;
+
+export interface GitSetRemoteRequest {
+	projectDir: string;
+	url: string;
+}
+
+export interface GitSetRemoteResult {
+	ok: true;
+	remoteUrl: string;
+}
+
+export type GitSetRemoteResponse = GitSetRemoteResult | GitOperationError;
+
+export interface GitSaveCredentialsRequest {
+	projectDir: string;
+	url: string;
+	username: string;
+	password: string;
+}
+
+export interface GitSaveCredentialsResult {
+	ok: true;
+}
+
+export type GitSaveCredentialsResponse =
+	| GitSaveCredentialsResult
+	| GitOperationError;
+
+export interface GitSetIdentityRequest {
+	projectDir: string;
+	userName: string;
+	userEmail: string;
+}
+
+export interface GitSetIdentityResult {
+	ok: true;
+}
+
+export type GitSetIdentityResponse = GitSetIdentityResult | GitOperationError;
+
+export interface GitDetectMainBranchRequest {
+	projectDir: string;
+}
+
+/** Response for GIT_DETECT_MAIN_BRANCH */
+export type GitDetectMainBranchResponse =
+	| { ok: true; branch: string | null }
+	| GitOperationError;
+
+// ── GIT_HANDLE_DIVERGENCE ──────────────────────────────────────────────────
+
+export interface GitHandleDivergenceRequest {
+	projectDir: string;
+	remoteBranch: string;
+}
+
+export interface GitHandleDivergenceResult {
+	ok: true;
+	divergenceDetected: boolean;
+	savedBranch: string | null;
+	message: string | null;
+}
+
+export type GitHandleDivergenceResponse =
+	| GitHandleDivergenceResult
+	| GitOperationError;
 
 // ── GIT_LIST_BRANCHES ──────────────────────────────────────────────────────
 
@@ -2015,6 +2142,27 @@ export type GitCheckoutBranchResponse =
 	| GitCheckoutBranchResult
 	| GitOperationError;
 
+// ── GIT_ENSURE_LOCAL_BRANCH ───────────────────────────────────────────────
+
+export interface GitEnsureLocalBranchRequest {
+	projectDir: string;
+	/** Nombre de la rama principal/protegida a asegurar localmente */
+	branch: string;
+}
+
+export interface GitEnsureLocalBranchResult {
+	ok: true;
+	/** Nombre de la rama asegurada */
+	branch: string;
+	/** True si se creó localmente desde origin/<branch> */
+	created: boolean;
+	output: string;
+}
+
+export type GitEnsureLocalBranchResponse =
+	| GitEnsureLocalBranchResult
+	| GitOperationError;
+
 // ── GIT_GET_BRANCH_COMMITS ─────────────────────────────────────────────────
 
 export interface GitGetBranchCommitsRequest {
@@ -2043,6 +2191,8 @@ export interface GitCreateBranchRequest {
 	newBranchName: string;
 	/** Rama base desde la cual crear la nueva rama */
 	sourceBranch: string;
+	/** Rama protegida configurada por el usuario */
+	protectedBranch?: string;
 }
 
 export interface GitCreateBranchSuccess {
@@ -2097,6 +2247,8 @@ export interface GitAddAndCommitRequest {
 	projectDir: string;
 	message: string;
 	description?: string;
+	/** Rama protegida configurada por el usuario */
+	protectedBranch?: string;
 }
 
 export interface GitAddAndCommitResult {
@@ -2589,6 +2741,46 @@ export interface AgentsFlowBridge {
 	): Promise<SaveGitCredentialsResult>;
 
 	/**
+	 * Detects repository git config state for the given project directory.
+	 * Returns whether .git exists and the current origin URL (if configured).
+	 */
+	gitGetConfig(req: GitGetConfigRequest): Promise<GitGetConfigResponse>;
+
+	/**
+	 * Initializes a Git repository in the project directory using `git init`.
+	 */
+	gitInit(req: GitInitRequest): Promise<GitInitResponse>;
+
+	/**
+	 * Adds or updates the `origin` remote URL in the repository.
+	 */
+	gitSetRemote(req: GitSetRemoteRequest): Promise<GitSetRemoteResponse>;
+
+	/**
+	 * Saves repository credentials for private remotes using Git credential flow.
+	 */
+	gitSaveCredentials(
+		req: GitSaveCredentialsRequest,
+	): Promise<GitSaveCredentialsResponse>;
+
+	/**
+	 * Sets local git identity for the repository (`user.name`, `user.email`).
+	 */
+	gitSetIdentity(req: GitSetIdentityRequest): Promise<GitSetIdentityResponse>;
+
+	/**
+	 * Detects the main/protected branch from the configured remote origin.
+	 * Returns branch name when detected, or null when detection is not possible.
+	 */
+	gitDetectMainBranch(
+		req: GitDetectMainBranchRequest,
+	): Promise<GitDetectMainBranchResponse>;
+
+	gitHandleDivergence(
+		req: GitHandleDivergenceRequest,
+	): Promise<GitHandleDivergenceResponse>;
+
+	/**
 	 * Registers a callback invoked whenever the main process emits a
 	 * `git:clone:progress` event for any active clone.
 	 *
@@ -2633,6 +2825,9 @@ export interface AgentsFlowBridge {
 	gitCheckoutBranch(
 		req: GitCheckoutBranchRequest,
 	): Promise<GitCheckoutBranchResponse>;
+	gitEnsureLocalBranch(
+		req: GitEnsureLocalBranchRequest,
+	): Promise<GitEnsureLocalBranchResponse>;
 	gitGetBranchCommits(
 		req: GitGetBranchCommitsRequest,
 	): Promise<GitGetBranchCommitsResponse>;

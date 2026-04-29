@@ -6,8 +6,10 @@ import {
 	type GitBranch,
 	type GitCheckoutBranchResponse,
 	type GitCommit,
+	type GitHandleDivergenceResponse,
 	type GitCreateBranchRequest,
 	type GitCreateBranchResponse,
+	type GitEnsureLocalBranchResponse,
 	type GitFetchAndPullResponse,
 	type GitGetBranchCommitsResponse,
 	type GitGetRemoteDiffResponse,
@@ -74,14 +76,6 @@ function isBranchNotFound(stderr: string): boolean {
 		s.includes("did not match any file(s) known to git") ||
 		s.includes("unknown revision or path not in the working tree") ||
 		s.includes("unknown revision")
-	);
-}
-
-function isRepoWithoutCommits(stderr: string): boolean {
-	const s = stderr.toLowerCase();
-	return (
-		s.includes("not a valid object name") ||
-		s.includes("ambiguous argument 'head'")
 	);
 }
 
@@ -224,6 +218,310 @@ function parseCommitsFromLog(stdout: string): GitCommit[] {
 	return commits;
 }
 
+type DivergenceSnapshot = {
+	hasDirtyTree: boolean;
+	aheadCount: number;
+	behindCount: number;
+	headIsAncestor: boolean;
+	emptyRepo: boolean;
+	hasRemoteRef: boolean;
+};
+
+function formatDivergenceBranchName(now: Date): {
+	datePart: string;
+	timePart: string;
+	branchName: string;
+} {
+	const pad = (n: number) => String(n).padStart(2, "0");
+	const datePart = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
+	const timePart = `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+	return {
+		datePart,
+		timePart,
+		branchName: `local-changes-${datePart}-${timePart}`,
+	};
+}
+
+function randomSuffix(length = 4): string {
+	const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+	let out = "";
+	for (let i = 0; i < length; i += 1) {
+		const idx = Math.floor(Math.random() * chars.length);
+		out += chars[idx] ?? "a";
+	}
+	return out;
+}
+
+function buildDivergenceMessage(
+	branchName: string,
+	stashPopHadConflicts: boolean,
+): string {
+	const base = `Your local changes have been saved in the branch '${branchName}'. You can merge them into the main branch when ready.`;
+	if (!stashPopHadConflicts) return base;
+	return `${base} Note: Some changes could not be automatically restored. Run 'git stash list' to find them.`;
+}
+
+async function detectDivergence(
+	projectDir: string,
+	remoteBranch: string,
+): Promise<DivergenceSnapshot> {
+	const statusRes = await runGit(projectDir, ["status", "--porcelain"]);
+	const hasDirtyTree = statusRes.exitCode === 0 && statusRes.stdout.trim().length > 0;
+
+	const headRes = await runGit(projectDir, ["rev-parse", "HEAD"]);
+	const emptyRepo = headRes.exitCode !== 0;
+
+	const remoteRefRes = await runGit(projectDir, [
+		"show-ref",
+		"--verify",
+		"--quiet",
+		`refs/remotes/origin/${remoteBranch}`,
+	]);
+	const hasRemoteRef = remoteRefRes.exitCode === 0;
+
+	if (emptyRepo) {
+		return {
+			hasDirtyTree,
+			aheadCount: 0,
+			behindCount: 0,
+			headIsAncestor: true,
+			emptyRepo: true,
+			hasRemoteRef,
+		};
+	}
+
+	if (!hasRemoteRef) {
+		return {
+			hasDirtyTree,
+			aheadCount: 0,
+			behindCount: 0,
+			headIsAncestor: true,
+			emptyRepo: false,
+			hasRemoteRef: false,
+		};
+	}
+
+	const aheadRes = await runGit(projectDir, [
+		"rev-list",
+		"--count",
+		`origin/${remoteBranch}..HEAD`,
+	]);
+	const behindRes = await runGit(projectDir, [
+		"rev-list",
+		"--count",
+		`HEAD..origin/${remoteBranch}`,
+	]);
+	const aheadCount =
+		aheadRes.exitCode === 0
+			? Number.parseInt(aheadRes.stdout || "0", 10) || 0
+			: 0;
+	const behindCount =
+		behindRes.exitCode === 0
+			? Number.parseInt(behindRes.stdout || "0", 10) || 0
+			: 0;
+
+	const ancestorRes = await runGit(projectDir, [
+		"merge-base",
+		"--is-ancestor",
+		"HEAD",
+		`origin/${remoteBranch}`,
+	]);
+	const headIsAncestor = ancestorRes.exitCode === 0;
+
+	return {
+		hasDirtyTree,
+		aheadCount,
+		behindCount,
+		headIsAncestor,
+		emptyRepo: false,
+		hasRemoteRef: true,
+	};
+}
+
+async function handleDivergence(
+	projectDir: string,
+	remoteBranch: string,
+): Promise<GitHandleDivergenceResponse> {
+	const repoError = ensureGitRepo(projectDir);
+	if (repoError) return repoError;
+
+	const currentBranch = await getCurrentBranch(projectDir);
+	if (!currentBranch) {
+		const headVerifyRes = await runGit(projectDir, ["rev-parse", "--verify", "HEAD"]);
+		const isEmptyRepo = headVerifyRes.exitCode !== 0;
+		if (isEmptyRepo) {
+			// Empty repo (no commits yet): continue flow and rely on status-based divergence.
+		} else {
+			console.warn("[git:handle-divergence] Detached HEAD detected. Skipping divergence flow.");
+			return {
+				ok: true,
+				divergenceDetected: false,
+				savedBranch: null,
+				message: null,
+			};
+		}
+	}
+
+	const fetchRes = await runGit(projectDir, ["fetch", "origin"], 20_000);
+	if (fetchRes.exitCode !== 0) {
+		return toGitError(fetchRes, "Failed to fetch remote.");
+	}
+
+	const divergence = await detectDivergence(projectDir, remoteBranch);
+	const isDiverged =
+		divergence.hasDirtyTree ||
+		divergence.aheadCount > 0 ||
+		!divergence.headIsAncestor;
+
+	if (!isDiverged) {
+		return {
+			ok: true,
+			divergenceDetected: false,
+			savedBranch: null,
+			message: null,
+		};
+	}
+
+	const now = new Date();
+	const { datePart, timePart, branchName: baseBranchName } =
+		formatDivergenceBranchName(now);
+	let tempBranch = baseBranchName;
+
+	let stashCreated = false;
+	const shouldUseStash = divergence.hasDirtyTree && !divergence.emptyRepo;
+	if (shouldUseStash) {
+		const stashRes = await runGit(projectDir, [
+			"stash",
+			"push",
+			"--include-untracked",
+			"-m",
+			`agentsflow-divergence-${datePart}-${timePart}`,
+		]);
+		if (stashRes.exitCode !== 0) {
+			return gitError(
+				"E_DIVERGENCE_SAVE_FAILED",
+				"Could not save local changes automatically. Please commit or stash your changes manually before connecting to the remote.",
+				stashRes.stderr || undefined,
+				[stashRes.stderr, stashRes.stdout].filter(Boolean).join("\n") || undefined,
+			);
+		}
+		stashCreated = true;
+	}
+
+	let createRes = await runGit(projectDir, ["checkout", "-b", tempBranch]);
+	if (createRes.exitCode !== 0) {
+		const alreadyExists = /already exists/i.test(createRes.stderr);
+		if (alreadyExists) {
+			tempBranch = `${baseBranchName}-${randomSuffix(4)}`;
+			createRes = await runGit(projectDir, ["checkout", "-b", tempBranch]);
+		}
+	}
+
+	if (createRes.exitCode !== 0) {
+		if (stashCreated) {
+			await runGit(projectDir, ["stash", "pop"]);
+		}
+		return gitError(
+			"E_DIVERGENCE_SAVE_FAILED",
+			"Could not save local changes automatically. Please commit or stash your changes manually before connecting to the remote.",
+			createRes.stderr || undefined,
+			[createRes.stderr, createRes.stdout].filter(Boolean).join("\n") || undefined,
+		);
+	}
+
+	let stashPopHadConflicts = false;
+	if (stashCreated) {
+		const popRes = await runGit(projectDir, ["stash", "pop"]);
+		if (popRes.exitCode !== 0) {
+			stashPopHadConflicts = true;
+		}
+	}
+
+	const statusAfterPop = await runGit(projectDir, ["status", "--porcelain"]);
+	const hasChangesToCommit =
+		statusAfterPop.exitCode === 0 && statusAfterPop.stdout.trim().length > 0;
+
+	if (hasChangesToCommit) {
+		const addRes = await runGit(projectDir, ["add", "-A"]);
+		if (addRes.exitCode !== 0) {
+			return gitError(
+				"E_DIVERGENCE_SAVE_FAILED",
+				`Local changes saved to '${tempBranch}', but could not stage files.`,
+				addRes.stderr || undefined,
+				[addRes.stderr, addRes.stdout].filter(Boolean).join("\n") || undefined,
+			);
+		}
+
+		const commitRes = await runGit(projectDir, [
+			"commit",
+			"-m",
+			"chore: save local changes before remote sync [agentsflow-auto]",
+		]);
+		if (commitRes.exitCode !== 0) {
+			return gitError(
+				"E_DIVERGENCE_SAVE_FAILED",
+				`Local changes saved to '${tempBranch}', but commit failed.`,
+				commitRes.stderr || undefined,
+				[commitRes.stderr, commitRes.stdout].filter(Boolean).join("\n") || undefined,
+			);
+		}
+	}
+
+	if (!divergence.hasRemoteRef) {
+		return {
+			ok: true,
+			divergenceDetected: true,
+			savedBranch: tempBranch,
+			message: buildDivergenceMessage(tempBranch, stashPopHadConflicts),
+		};
+	}
+
+	const localExistsRes = await runGit(projectDir, [
+		"show-ref",
+		"--verify",
+		"--quiet",
+		`refs/heads/${remoteBranch}`,
+	]);
+
+	let checkoutRes: RunGitResult;
+	if (localExistsRes.exitCode === 0) {
+		checkoutRes = await runGit(projectDir, ["checkout", remoteBranch]);
+	} else {
+		checkoutRes = await runGit(projectDir, [
+			"checkout",
+			"-b",
+			remoteBranch,
+			`origin/${remoteBranch}`,
+		]);
+	}
+
+	if (checkoutRes.exitCode !== 0) {
+		return gitError(
+			"E_DIVERGENCE_SAVE_FAILED",
+			`Local changes saved to '${tempBranch}', but could not checkout '${remoteBranch}'.`,
+			checkoutRes.stderr || undefined,
+			[checkoutRes.stderr, checkoutRes.stdout].filter(Boolean).join("\n") || undefined,
+		);
+	}
+
+	const pullRes = await runGit(projectDir, ["pull", "--ff-only"], 30_000);
+	if (pullRes.exitCode !== 0) {
+		return gitError(
+			"E_DIVERGENCE_SAVE_FAILED",
+			`Local changes saved to '${tempBranch}', but pull failed on '${remoteBranch}'.`,
+			pullRes.stderr || undefined,
+			[pullRes.stderr, pullRes.stdout].filter(Boolean).join("\n") || undefined,
+		);
+	}
+
+	return {
+		ok: true,
+		divergenceDetected: true,
+		savedBranch: tempBranch,
+		message: buildDivergenceMessage(tempBranch, stashPopHadConflicts),
+	};
+}
+
 async function getCurrentBranch(projectDir: string): Promise<string> {
 	const res = await runGit(projectDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
 	if (res.exitCode !== 0) return "";
@@ -237,32 +535,28 @@ async function listBranches(
 	const repoError = ensureGitRepo(projectDir);
 	if (repoError) return repoError;
 
+	const currentBranch = await getCurrentBranch(projectDir);
 	const localRes = await runGit(projectDir, [
-		"branch",
-		"--format=%(refname:short)|%(HEAD)|%(upstream:short)|%(upstream:track)",
+		"for-each-ref",
+		"--format=%(refname:short)|%(upstream:short)|%(upstream:track)",
+		"refs/heads",
 	]);
 	if (localRes.exitCode !== 0) {
-		if (isRepoWithoutCommits(localRes.stderr)) {
-			return { ok: true, currentBranch: "", branches: [] };
-		}
 		return toGitError(localRes, "Failed to list Git branches.");
 	}
 
 	const branches: GitBranch[] = [];
-	let currentBranch = "";
 
 	for (const rawLine of localRes.stdout.split("\n")) {
 		const line = rawLine.trim();
 		if (!line) continue;
-		const [nameRaw, headRaw, upstreamRaw, trackRaw] = line.split("|");
+		const [nameRaw, upstreamRaw, trackRaw] = line.split("|");
 		const name = (nameRaw ?? "").trim();
 		if (!name) continue;
-		const isCurrent = (headRaw ?? "").trim() === "*";
+		const isCurrent = name === currentBranch;
 		const upstream = (upstreamRaw ?? "").trim();
 		const track = (trackRaw ?? "").trim();
 		const { ahead, behind } = parseUpstreamTrack(track);
-
-		if (isCurrent) currentBranch = name;
 
 		branches.push({
 			name,
@@ -495,6 +789,123 @@ async function checkoutBranch(
 	return toGitError(checkoutRes, `Failed to checkout branch '${branchName}'.`);
 }
 
+async function ensureLocalBranch(
+	projectDir: string,
+	branch: string,
+): Promise<GitEnsureLocalBranchResponse> {
+	const repoError = ensureGitRepo(projectDir);
+	if (repoError) return repoError;
+
+	const branchName = branch.trim();
+	if (!branchName) {
+		return gitError("E_BRANCH_NOT_FOUND", "Branch name is required.");
+	}
+
+	const fetchRes = await runGit(projectDir, ["fetch", "origin"], 20_000);
+	if (fetchRes.exitCode !== 0) {
+		return toGitError(
+			fetchRes,
+			`Failed to fetch remote branch '${branchName}'.`,
+		);
+	}
+
+	const localExistsRes = await runGit(projectDir, [
+		"show-ref",
+		"--verify",
+		"--quiet",
+		`refs/heads/${branchName}`,
+	]);
+	const localExists = localExistsRes.exitCode === 0;
+
+	if (!localExists && localExistsRes.errorCode === "ENOENT") {
+		return gitError("E_GIT_NOT_FOUND", "Git is not installed or not found in PATH.");
+	}
+
+	if (!localExists) {
+		const remoteExistsRes = await runGit(projectDir, [
+			"show-ref",
+			"--verify",
+			"--quiet",
+			`refs/remotes/origin/${branchName}`,
+		]);
+		if (remoteExistsRes.exitCode !== 0) {
+			if (remoteExistsRes.errorCode === "ENOENT") {
+				return gitError(
+					"E_GIT_NOT_FOUND",
+					"Git is not installed or not found in PATH.",
+				);
+			}
+			return gitError(
+				"E_BRANCH_NOT_FOUND",
+				`Remote branch 'origin/${branchName}' does not exist.`,
+				remoteExistsRes.stderr || undefined,
+				[remoteExistsRes.stderr, remoteExistsRes.stdout]
+					.filter(Boolean)
+					.join("\n") || undefined,
+			);
+		}
+
+		const createCheckoutRes = await runGit(projectDir, [
+			"checkout",
+			"-b",
+			branchName,
+			`origin/${branchName}`,
+		]);
+		if (createCheckoutRes.exitCode !== 0) {
+			return toGitError(
+				createCheckoutRes,
+				`Failed to create local branch '${branchName}' from origin/${branchName}.`,
+			);
+		}
+
+		const pullCreatedRes = await runGit(projectDir, ["pull", "--ff-only"], 30_000);
+		if (pullCreatedRes.exitCode !== 0) {
+			return toGitError(
+				pullCreatedRes,
+				`Failed to pull updates for branch '${branchName}'.`,
+			);
+		}
+
+		const output = [
+			fetchRes.stdout,
+			fetchRes.stderr,
+			createCheckoutRes.stdout,
+			createCheckoutRes.stderr,
+			pullCreatedRes.stdout,
+			pullCreatedRes.stderr,
+		]
+			.filter(Boolean)
+			.join("\n")
+			.trim();
+
+		return { ok: true, branch: branchName, created: true, output };
+	}
+
+	const checkoutRes = await runGit(projectDir, ["checkout", branchName]);
+	if (checkoutRes.exitCode !== 0) {
+		return toGitError(checkoutRes, `Failed to checkout branch '${branchName}'.`);
+	}
+
+	const pullRes = await runGit(projectDir, ["pull", "--ff-only"], 30_000);
+	if (pullRes.exitCode !== 0) {
+		return toGitError(pullRes, `Failed to pull updates for branch '${branchName}'.`);
+	}
+
+	const output = [
+		fetchRes.stdout,
+		fetchRes.stderr,
+		checkoutRes.stdout,
+		checkoutRes.stderr,
+		pullRes.stdout,
+		pullRes.stderr,
+	]
+		.filter(Boolean)
+		.join("\n")
+		.trim();
+
+	return { ok: true, branch: branchName, created: false, output };
+}
+
 async function getBranchCommits(
 	projectDir: string,
 	branch: string,
@@ -536,6 +947,7 @@ async function createBranch(
 	projectDir: string,
 	newBranchName: string,
 	sourceBranch: string,
+	protectedBranch?: string,
 ): Promise<GitCreateBranchResponse> {
 	const repoError = ensureGitRepo(projectDir);
 	if (repoError) return repoError;
@@ -545,8 +957,14 @@ async function createBranch(
 		return gitError("E_INVALID_BRANCH_NAME", `Invalid branch name: '${trimmed}'.`);
 	}
 
-	const protectedNames = ["main", "master"];
-	if (protectedNames.includes(trimmed.toLowerCase())) {
+	if (protectedBranch && trimmed === protectedBranch) {
+		return gitError(
+			"E_INVALID_BRANCH_NAME",
+			`Cannot create a branch named '${trimmed}' — it is the protected branch.`,
+		);
+	}
+
+	if (!protectedBranch && ["main", "master"].includes(trimmed.toLowerCase())) {
 		return gitError(
 			"E_INVALID_BRANCH_NAME",
 			`Cannot create a branch named '${trimmed}'.`,
@@ -622,6 +1040,20 @@ export function registerGitBranchesHandlers(ipcMain: IpcMain): void {
 	);
 
 	ipcMain.handle(
+		IPC_CHANNELS.GIT_ENSURE_LOCAL_BRANCH,
+		async (_event, req: { projectDir: string; branch: string }) => {
+			return ensureLocalBranch(req.projectDir, req.branch);
+		},
+	);
+
+	ipcMain.handle(
+		IPC_CHANNELS.GIT_HANDLE_DIVERGENCE,
+		async (_event, req: { projectDir: string; remoteBranch: string }) => {
+			return handleDivergence(req.projectDir, req.remoteBranch);
+		},
+	);
+
+	ipcMain.handle(
 		IPC_CHANNELS.GIT_GET_BRANCH_COMMITS,
 		async (
 			_event,
@@ -634,7 +1066,12 @@ export function registerGitBranchesHandlers(ipcMain: IpcMain): void {
 	ipcMain.handle(
 		IPC_CHANNELS.GIT_CREATE_BRANCH,
 		async (_event, req: GitCreateBranchRequest) => {
-			return createBranch(req.projectDir, req.newBranchName, req.sourceBranch);
+			return createBranch(
+				req.projectDir,
+				req.newBranchName,
+				req.sourceBranch,
+				req.protectedBranch,
+			);
 		},
 	);
 }

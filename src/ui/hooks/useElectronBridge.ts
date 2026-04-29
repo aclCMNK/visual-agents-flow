@@ -91,6 +91,13 @@ const browserStub: AgentsFlowBridge = {
 	cancelClone: () => notAvailable("cancelClone"),
 	validateCloneToken: () => notAvailable("validateCloneToken"),
 	saveGitCredentials: () => notAvailable("saveGitCredentials"),
+	gitGetConfig: () => notAvailable("gitGetConfig"),
+	gitInit: () => notAvailable("gitInit"),
+	gitSetRemote: () => notAvailable("gitSetRemote"),
+	gitSaveCredentials: () => notAvailable("gitSaveCredentials"),
+	gitSetIdentity: () => notAvailable("gitSetIdentity"),
+	gitDetectMainBranch: () => notAvailable("gitDetectMainBranch"),
+	gitHandleDivergence: () => notAvailable("gitHandleDivergence"),
 	onCloneProgress: () => undefined,
 	offCloneProgress: () => undefined,
 	getGitRemoteOrigin: () => Promise.resolve(null),
@@ -99,7 +106,11 @@ const browserStub: AgentsFlowBridge = {
 	gitFetchAndPull: () => notAvailable("gitFetchAndPull"),
 	gitPullBranch: () => notAvailable("gitPullBranch"),
 	gitCheckoutBranch: () => notAvailable("gitCheckoutBranch"),
+	gitEnsureLocalBranch: () => notAvailable("gitEnsureLocalBranch"),
 	gitGetBranchCommits: () => notAvailable("gitGetBranchCommits"),
+	gitCreateBranch: () => notAvailable("gitCreateBranch"),
+	gitGetStatus: () => notAvailable("gitGetStatus"),
+	gitAddAndCommit: () => notAvailable("gitAddAndCommit"),
 };
 
 // ── Hook ───────────────────────────────────────────────────────────────────

@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { IpcMain } from "electron";
 import {
+	type GitAddAndCommitRequest,
 	type GitAddAndCommitResponse,
 	type GitChangedFile,
 	type GitFileStatusCode,
@@ -222,12 +223,26 @@ async function addAndCommit(
 	projectDir: string,
 	message: string,
 	description?: string,
+	protectedBranch?: string,
 ): Promise<GitAddAndCommitResponse> {
 	const repoError = ensureGitRepo(projectDir);
 	if (repoError) return repoError;
 
 	if (message.trim().length === 0) {
 		return gitError("E_EMPTY_COMMIT_MSG", "Commit message cannot be empty.");
+	}
+
+	if (protectedBranch) {
+		const branchRes = await runGit(projectDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
+		if (branchRes.exitCode === 0) {
+			const currentBranch = branchRes.stdout === "HEAD" ? "" : branchRes.stdout;
+			if (currentBranch && currentBranch === protectedBranch) {
+				return gitError(
+					"E_PROTECTED_BRANCH",
+					`Commits to the protected branch '${protectedBranch}' are not allowed.`,
+				);
+			}
+		}
 	}
 
 	const addRes = await runGit(projectDir, ["add", "-A"], 30_000);
@@ -283,11 +298,13 @@ export function registerGitChangesHandlers(ipcMain: IpcMain): void {
 
 	ipcMain.handle(
 		IPC_CHANNELS.GIT_ADD_AND_COMMIT,
-		async (
-			_event,
-			req: { projectDir: string; message: string; description?: string },
-		) => {
-			return addAndCommit(req.projectDir, req.message, req.description);
+		async (_event, req: GitAddAndCommitRequest) => {
+			return addAndCommit(
+				req.projectDir,
+				req.message,
+				req.description,
+				req.protectedBranch,
+			);
 		},
 	);
 }

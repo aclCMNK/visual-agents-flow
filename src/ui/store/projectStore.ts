@@ -94,12 +94,21 @@ const _stub: AgentsFlowBridge = {
 	readAgentAdataRaw: () => notAvailable("readAgentAdataRaw"),
 	// Git remote origin detection
 	getGitRemoteOrigin: () => Promise.resolve(null),
+	gitGetConfig: () => notAvailable("gitGetConfig"),
+	gitInit: () => notAvailable("gitInit"),
+	gitSetRemote: () => notAvailable("gitSetRemote"),
+	gitSaveCredentials: () => notAvailable("gitSaveCredentials"),
+	gitSetIdentity: () => notAvailable("gitSetIdentity"),
+	gitDetectMainBranch: () => notAvailable("gitDetectMainBranch"),
 	gitListBranches: () => notAvailable("gitListBranches"),
 	gitGetRemoteDiff: () => notAvailable("gitGetRemoteDiff"),
 	gitFetchAndPull: () => notAvailable("gitFetchAndPull"),
 	gitPullBranch: () => notAvailable("gitPullBranch"),
 	gitCheckoutBranch: () => notAvailable("gitCheckoutBranch"),
 	gitGetBranchCommits: () => notAvailable("gitGetBranchCommits"),
+	gitCreateBranch: () => notAvailable("gitCreateBranch"),
+	gitGetStatus: () => notAvailable("gitGetStatus"),
+	gitAddAndCommit: () => notAvailable("gitAddAndCommit"),
 };
 
 function getBridge(): AgentsFlowBridge {

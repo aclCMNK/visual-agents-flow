@@ -108,6 +108,20 @@ import type {
 	CloneCancelRequest,
 	CloneValidateRequest,
 	SaveGitCredentialsRequest,
+	GitGetConfigRequest,
+	GitGetConfigResponse,
+	GitInitRequest,
+	GitInitResponse,
+	GitSetRemoteRequest,
+	GitSetRemoteResponse,
+	GitSaveCredentialsRequest,
+	GitSaveCredentialsResponse,
+	GitSetIdentityRequest,
+	GitSetIdentityResponse,
+	GitDetectMainBranchRequest,
+	GitDetectMainBranchResponse,
+	GitHandleDivergenceRequest,
+	GitHandleDivergenceResponse,
 	CloneProgressEvent,
 	GitHubFetchRequest,
 	GitListBranchesRequest,
@@ -120,6 +134,8 @@ import type {
 	GitPullBranchResponse,
 	GitCheckoutBranchRequest,
 	GitCheckoutBranchResponse,
+	GitEnsureLocalBranchRequest,
+	GitEnsureLocalBranchResponse,
 	GitGetBranchCommitsRequest,
 	GitGetBranchCommitsResponse,
 	GitCreateBranchRequest,
@@ -472,7 +488,41 @@ const bridge: AgentsFlowBridge = {
 	},
 
 	saveGitCredentials(req: SaveGitCredentialsRequest) {
+		return ipcRenderer.invoke(IPC_CHANNELS.GIT_CLONE_SAVE_CREDENTIALS, req);
+	},
+
+	gitGetConfig(req: GitGetConfigRequest): Promise<GitGetConfigResponse> {
+		return ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_CONFIG, req);
+	},
+
+	gitInit(req: GitInitRequest): Promise<GitInitResponse> {
+		return ipcRenderer.invoke(IPC_CHANNELS.GIT_INIT, req);
+	},
+
+	gitSetRemote(req: GitSetRemoteRequest): Promise<GitSetRemoteResponse> {
+		return ipcRenderer.invoke(IPC_CHANNELS.GIT_SET_REMOTE, req);
+	},
+
+	gitSaveCredentials(
+		req: GitSaveCredentialsRequest,
+	): Promise<GitSaveCredentialsResponse> {
 		return ipcRenderer.invoke(IPC_CHANNELS.GIT_SAVE_CREDENTIALS, req);
+	},
+
+	gitSetIdentity(req: GitSetIdentityRequest): Promise<GitSetIdentityResponse> {
+		return ipcRenderer.invoke(IPC_CHANNELS.GIT_SET_IDENTITY, req);
+	},
+
+	gitDetectMainBranch(
+		req: GitDetectMainBranchRequest,
+	): Promise<GitDetectMainBranchResponse> {
+		return ipcRenderer.invoke(IPC_CHANNELS.GIT_DETECT_MAIN_BRANCH, req);
+	},
+
+	gitHandleDivergence(
+		req: GitHandleDivergenceRequest,
+	): Promise<GitHandleDivergenceResponse> {
+		return ipcRenderer.invoke(IPC_CHANNELS.GIT_HANDLE_DIVERGENCE, req);
 	},
 
 	onCloneProgress(callback: (event: CloneProgressEvent) => void) {
@@ -521,6 +571,12 @@ const bridge: AgentsFlowBridge = {
 		req: GitCheckoutBranchRequest,
 	): Promise<GitCheckoutBranchResponse> {
 		return ipcRenderer.invoke(IPC_CHANNELS.GIT_CHECKOUT_BRANCH, req);
+	},
+
+	gitEnsureLocalBranch(
+		req: GitEnsureLocalBranchRequest,
+	): Promise<GitEnsureLocalBranchResponse> {
+		return ipcRenderer.invoke(IPC_CHANNELS.GIT_ENSURE_LOCAL_BRANCH, req);
 	},
 
 	gitGetBranchCommits(

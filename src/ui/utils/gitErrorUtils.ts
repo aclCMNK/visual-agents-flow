@@ -29,6 +29,11 @@ export function formatGitError(
 			return toUiGitError("Nothing to commit. Working tree is clean.", maxLength);
 		case "E_EMPTY_COMMIT_MSG":
 			return toUiGitError("Commit message cannot be empty.", maxLength);
+		case "E_PROTECTED_BRANCH":
+			return {
+				displayMessage: "🔒 Commits to the protected branch are not allowed.",
+				fullMessage: error.message,
+			};
 		case "E_GIT_NOT_FOUND":
 			return toUiGitError("Git is not installed or not found in PATH.", maxLength);
 		case "E_TIMEOUT":
