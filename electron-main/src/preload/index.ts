@@ -70,6 +70,7 @@ import type {
   StatResponse,
   ReadChildrenResponse,
   MkdirResponse,
+  ListDrivesResponse,
 } from "../ipc/folder-explorer.ts";
 import type { FilterOptions } from "../fs/filter.ts";
 
@@ -130,6 +131,12 @@ export interface FolderExplorerBridge {
    * Creates a new directory named `name` inside `parentPath`.
    */
   mkdir(parentPath: string, name: string): Promise<MkdirResponse>;
+
+  /**
+   * Lists all available Windows drive units (A:\ to Z:\).
+   * Only meaningful on Windows — returns E_UNKNOWN on other platforms.
+   */
+  listDrives(): Promise<ListDrivesResponse>;
 }
 
 // ── Implementación del bridge ───────────────────────────────────────────────
@@ -175,14 +182,24 @@ const folderExplorerBridge: FolderExplorerBridge = {
       { parentPath, name },
     ) as Promise<MkdirResponse>;
   },
+
+  listDrives(): Promise<ListDrivesResponse> {
+    return ipcRenderer.invoke(
+      FOLDER_EXPLORER_CHANNELS.LIST_DRIVES,
+    ) as Promise<ListDrivesResponse>;
+  },
 };
 
 // ── Exposición segura en window.folderExplorer ─────────────────────────────
 
 contextBridge.exposeInMainWorld("folderExplorer", folderExplorerBridge);
 
+// Expose platform so the renderer can detect Windows without relying on
+// navigator.userAgent (which can be unreliable in Electron).
+contextBridge.exposeInMainWorld("platform", process.platform);
+
 console.log(
-  "[preload/folder-explorer] window.folderExplorer expuesto — 4 canales IPC activos",
+  "[preload/folder-explorer] window.folderExplorer expuesto — 5 canales IPC activos",
 );
 
 // ── Augmentación global de tipos ────────────────────────────────────────────
@@ -201,5 +218,12 @@ declare global {
      * @see FolderExplorerBridge para la firma completa.
      */
     folderExplorer: FolderExplorerBridge;
+
+    /**
+     * The current platform string (e.g. "win32", "linux", "darwin").
+     * Exposed by the preload script so the renderer can detect Windows
+     * without relying on navigator.userAgent.
+     */
+    platform: NodeJS.Platform;
   }
 }

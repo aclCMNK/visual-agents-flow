@@ -215,3 +215,56 @@ export async function isPathInsideHome(inputPath: string): Promise<boolean> {
 export async function assertWithinHome(inputPath: string): Promise<string> {
   return resolveWithinHome(inputPath);
 }
+
+// ── resolveForWindows ─────────────────────────────────────────────────────
+
+/**
+ * Windows-aware path resolver.
+ *
+ * Accepts:
+ *   1. Drive roots (e.g. "C:\") — validated directly without homeJail.
+ *   2. Subdirectories of any drive (e.g. "C:\Users\...") — validated that
+ *      the drive exists (stat the root) and the path is accessible.
+ *   3. Paths inside HOME_ROOT — falls through to resolveWithinHome.
+ *
+ * This function does NOT apply homeJail for drive roots and drive
+ * subdirectories, because on Windows the concept of HOME jail is
+ * extended to allow navigation across drives via the drive list.
+ *
+ * Security: still resolves symlinks and validates existence.
+ *
+ * @param inputPath - Raw path from the renderer (untrusted).
+ * @returns Resolved absolute path.
+ * @throws {Error} if the path is empty, doesn't exist, or is otherwise invalid.
+ */
+export async function resolveForWindows(inputPath: string): Promise<string> {
+  if (!inputPath || inputPath.trim() === "") {
+    throw new Error("homeJail: path must not be empty");
+  }
+
+  const { normalize: pathNorm, resolve: pathResolve } = await import("node:path");
+  const lexical = pathNorm(pathResolve(inputPath));
+
+  // Normalise forward slashes to backslashes for Windows
+  const normalised = lexical.replace(/\//g, "\\");
+
+  // Check if it's a drive root (e.g. "C:\")
+  const isDriveRoot = /^[A-Za-z]:\\$/.test(normalised);
+  // Check if it's inside a drive (e.g. "C:\Users\...")
+  const isDrivePath = /^[A-Za-z]:\\/.test(normalised);
+
+  if (isDriveRoot || isDrivePath) {
+    // Resolve symlinks to get the true on-disk path
+    let resolved: string;
+    try {
+      resolved = await realpath(normalised);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`homeJail: cannot resolve path "${inputPath}": ${msg}`);
+    }
+    return resolved;
+  }
+
+  // Fallback: use standard homeJail for non-drive paths
+  return resolveWithinHome(inputPath);
+}

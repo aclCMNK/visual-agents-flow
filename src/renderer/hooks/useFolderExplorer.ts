@@ -94,6 +94,40 @@ import {
   type IpcError,
   type FilterOptions,
 } from "../services/ipc.ts";
+import type { Drive } from "../../../electron-main/src/ipc/folder-explorer.ts";
+
+// ── Platform detection ────────────────────────────────────────────────────────
+// Use window.platform exposed by the preload script (more reliable than userAgent).
+const IS_WINDOWS: boolean =
+  typeof window !== "undefined" && "platform" in window
+    ? (window as Window & { platform: string }).platform === "win32"
+    : false;
+
+// ── Windows path helpers ──────────────────────────────────────────────────────
+
+/**
+ * Normalises Windows path separators: converts forward slashes to backslashes
+ * and ensures a trailing backslash for drive roots.
+ */
+function normaliseWindowsPath(p: string): string {
+  // Replace forward slashes with backslashes
+  let normalised = p.replace(/\//g, "\\");
+  // If it looks like a bare drive letter (e.g. "C:"), add trailing backslash
+  if (/^[A-Za-z]:$/.test(normalised)) {
+    normalised = normalised + "\\";
+  }
+  return normalised;
+}
+
+/**
+ * Returns true if `path` is the root of a Windows drive, e.g. "C:\".
+ * Handles both "C:\" and "C:/" forms.
+ */
+function isWindowsDriveRoot(path: string): boolean {
+  return /^[A-Za-z]:[/\\]$/.test(path);
+}
+
+export { Drive };
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -182,6 +216,25 @@ export interface FolderExplorerHandle {
   /** True while a create-directory operation is in flight. */
   creating: boolean;
 
+  /**
+   * True when the explorer is showing the Windows drive list ("This PC" view).
+   * Always false on Linux/macOS.
+   */
+  isDriveList: boolean;
+
+  /**
+   * List of available Windows drives. Populated when `isDriveList` is true.
+   * Always empty on Linux/macOS.
+   */
+  drives: Drive[];
+
+  /**
+   * True when the user is at the absolute root and cannot go up further.
+   * On Windows: true only when `isDriveList` is true (drive list = root).
+   * On Linux/macOS: true when `breadcrumbs.length <= 1` (at "/").
+   */
+  isAtRoot: boolean;
+
   // ── Navigation methods ──────────────────────────────────────────────────
 
   /**
@@ -215,6 +268,9 @@ export interface FolderExplorerHandle {
    * If already at the HOME root (or `cwd` has no parent), this is a no-op.
    * Uses `breadcrumbs[breadcrumbs.length - 2]?.path` to find the parent —
    * avoids string-splitting / OS path ops in the renderer.
+   *
+   * On Windows: if at a drive root (e.g. C:\), navigates to the drive list.
+   * If already at the drive list, this is a no-op.
    */
   goUp: () => void;
 
@@ -225,6 +281,18 @@ export interface FolderExplorerHandle {
    * (e.g. file creation, deletion, rename from another panel).
    */
   reload: () => void;
+
+  /**
+   * Navigate to the Windows drive list ("This PC" view).
+   * No-op on Linux/macOS.
+   */
+  goToDriveList: () => void;
+
+  /**
+   * Navigate into a Windows drive (e.g. C:\).
+   * No-op on Linux/macOS.
+   */
+  openDrive: (drive: Drive) => void;
 
   // ── Selection methods ──────────────────────────────────────────────────
 
@@ -272,9 +340,11 @@ export interface FolderExplorerHandle {
 // ── Breadcrumb builder ────────────────────────────────────────────────────────
 
 /**
- * Builds an ordered list of breadcrumbs from a POSIX absolute path.
+ * Builds an ordered list of breadcrumbs from an absolute path.
  *
- * e.g. `/home/user/projects` →
+ * Supports both POSIX paths (/home/user/...) and Windows paths (C:\Users\...).
+ *
+ * POSIX example: `/home/user/projects` →
  *   [
  *     { name: "/", path: "/" },
  *     { name: "home", path: "/home" },
@@ -282,12 +352,51 @@ export interface FolderExplorerHandle {
  *     { name: "projects", path: "/home/user/projects" },
  *   ]
  *
+ * Windows example: `C:\Users\kamiloid` →
+ *   [
+ *     { name: "C:\\", path: "C:\\" },
+ *     { name: "Users", path: "C:\\Users" },
+ *     { name: "kamiloid", path: "C:\\Users\\kamiloid" },
+ *   ]
+ *
  * Handles edge cases:
  *   - `/` → [{ name: "/", path: "/" }]
+ *   - `C:\` → [{ name: "C:\\", path: "C:\\" }]
  *   - Empty / non-absolute string → []
  */
 function buildBreadcrumbs(absolutePath: string): Breadcrumb[] {
-  if (!absolutePath || !absolutePath.startsWith("/")) return [];
+  if (!absolutePath) return [];
+
+  // Windows path detection: starts with a drive letter (e.g. "C:\")
+  const isWindowsPath = /^[A-Za-z]:[/\\]/.test(absolutePath);
+
+  if (isWindowsPath) {
+    // Normalise to backslashes but preserve drive root trailing backslash
+    const withBackslashes = absolutePath.replace(/\//g, "\\");
+    // Remove trailing backslash ONLY if it's not a drive root (e.g. "C:\Users\" → "C:\Users")
+    const normalised = /^[A-Za-z]:\\$/.test(withBackslashes)
+      ? withBackslashes
+      : withBackslashes.replace(/\\+$/, "") || withBackslashes;
+    // Extract drive root (e.g. "C:\")
+    const driveRoot = normalised.slice(0, 3); // "C:\"
+    // If path IS the drive root
+    if (normalised === driveRoot || normalised.replace(/\\$/, "") === driveRoot.replace(/\\$/, "")) {
+      return [{ name: driveRoot, path: driveRoot }];
+    }
+    // Split remaining path after drive root
+    const rest = normalised.slice(3); // "Users\kamiloid"
+    const segments = rest.split("\\").filter(Boolean);
+    const crumbs: Breadcrumb[] = [{ name: driveRoot, path: driveRoot }];
+    let accumulated = driveRoot;
+    for (const seg of segments) {
+      accumulated = accumulated.endsWith("\\") ? `${accumulated}${seg}` : `${accumulated}\\${seg}`;
+      crumbs.push({ name: seg, path: accumulated });
+    }
+    return crumbs;
+  }
+
+  // POSIX path
+  if (!absolutePath.startsWith("/")) return [];
 
   // Normalise: remove trailing slash (except root), collapse double slashes.
   const normalised = absolutePath.replace(/\/+/g, "/").replace(/\/$/, "") || "/";
@@ -344,6 +453,10 @@ export function useFolderExplorer(
   const [showHidden, setShowHiddenState] = useState<boolean>(initialShowHidden);
   const [creating,   setCreating]   = useState<boolean>(false);
 
+  // ── Windows-specific state ──────────────────────────────────────────────
+  const [isDriveList, setIsDriveList] = useState<boolean>(false);
+  const [drives,      setDrives]      = useState<Drive[]>([]);
+
   // Stable ref for the onError callback — avoids stale closures in navigate.
   const onErrorRef = useRef<((err: IpcError) => void) | undefined>(onError);
   useEffect(() => { onErrorRef.current = onError; }, [onError]);
@@ -380,6 +493,8 @@ export function useFolderExplorer(
       setBreadcrumbs(buildBreadcrumbs(result.dirPath));
       setEntries(result.entries);
       setSelected(new Set()); // clear selection on every navigation
+      // Exit drive list mode when navigating into a real directory
+      setIsDriveList(false);
       setLoading(false);
     },
     // extraFilterOptions object identity may change; stringify for stable dep.
@@ -414,18 +529,73 @@ export function useFolderExplorer(
     [navigateInternal, showHidden],
   );
 
+  // ── Windows: goToDriveList ───────────────────────────────────────────────
+
+  const goToDriveList = useCallback(async () => {
+    if (!IS_WINDOWS) return;
+    setLoading(true);
+    setError(null);
+
+    const result = await window.folderExplorer.listDrives();
+
+    if (!result.ok) {
+      setError({ code: result.code, message: result.message });
+      onErrorRef.current?.({ code: result.code, message: result.message });
+      setLoading(false);
+      return;
+    }
+
+    setDrives(result.drives);
+    setIsDriveList(true);
+    setCwd("");
+    setBreadcrumbs([]);
+    setEntries([]);
+    setSelected(new Set());
+    setLoading(false);
+  }, []);
+
+  // ── Windows: openDrive ───────────────────────────────────────────────────
+
+  const openDrive = useCallback(
+    (drive: Drive) => {
+      if (!IS_WINDOWS) return;
+      void navigateInternal(drive.path, showHidden);
+    },
+    [navigateInternal, showHidden],
+  );
+
+  // ── goUp ─────────────────────────────────────────────────────────────────
+
   const goUp = useCallback(() => {
+    if (IS_WINDOWS) {
+      if (isDriveList) return; // already at drive list — no-op
+
+      // Normalise cwd for comparison (handle forward slashes on Windows)
+      const normCwd = normaliseWindowsPath(cwd);
+      if (isWindowsDriveRoot(normCwd)) {
+        // At a drive root (e.g. C:\) → go to drive list
+        void goToDriveList();
+        return;
+      }
+    }
+
+    // Standard behaviour: Linux/macOS or Windows subdirectory
     if (breadcrumbs.length <= 1) return; // already at root
     const parent = breadcrumbs[breadcrumbs.length - 2];
     if (parent) {
       void navigateInternal(parent.path, showHidden);
     }
-  }, [breadcrumbs, navigateInternal, showHidden]);
+  }, [IS_WINDOWS, isDriveList, cwd, breadcrumbs, navigateInternal, showHidden, goToDriveList]);
 
   const reload = useCallback(() => {
+    if (isDriveList) {
+      // Reload drive list
+      void goToDriveList();
+      return;
+    }
     if (!cwd) return;
     void navigateInternal(cwd, showHidden);
-  }, [cwd, navigateInternal, showHidden]);
+  }, [isDriveList, cwd, navigateInternal, showHidden, goToDriveList]);
 
   // ── Selection methods ────────────────────────────────────────────────────
 
@@ -491,6 +661,10 @@ export function useFolderExplorer(
     [cwd, showHidden, navigateInternal],
   );
 
+  // ── isAtRoot ──────────────────────────────────────────────────────────────
+  // Windows: root is the drive list; Linux/macOS: root is "/"
+  const isAtRoot = IS_WINDOWS ? isDriveList : breadcrumbs.length <= 1;
+
   // ── Return ────────────────────────────────────────────────────────────────
 
   return {
@@ -503,11 +677,16 @@ export function useFolderExplorer(
     selected,
     showHidden,
     creating,
+    isDriveList,
+    drives,
+    isAtRoot,
     // Navigation
     navigate,
     open,
     goUp,
     reload,
+    goToDriveList,
+    openDrive,
     // Selection
     select,
     toggleSelect,

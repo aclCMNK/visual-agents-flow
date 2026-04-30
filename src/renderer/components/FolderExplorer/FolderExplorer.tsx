@@ -131,6 +131,7 @@ import React, {
 } from "react";
 import { useFolderExplorer } from "../../hooks/useFolderExplorer.ts";
 import type { Entry } from "../../services/ipc.ts";
+import type { Drive } from "../../hooks/useFolderExplorer.ts";
 import styles from "./FolderExplorer.module.css";
 
 // ── Props ─────────────────────────────────────────────────────────────────
@@ -400,6 +401,10 @@ export function FolderExplorer({
     setShowHidden,
     clearError,
     createDir,
+    isDriveList,
+    drives,
+    isAtRoot,
+    openDrive,
   } = useFolderExplorer({
     initialPath,
     extraFilterOptions: { directoriesOnly: !showFiles },
@@ -565,8 +570,7 @@ export function FolderExplorer({
   }, [cwd]);
 
   // ── Render ───────────────────────────────────────────────────────────────
-
-  const isAtRoot = breadcrumbs.length <= 1;
+  // isAtRoot comes from the hook (Windows-aware)
 
   return (
     <div
@@ -584,7 +588,7 @@ export function FolderExplorer({
           onClick={goUp}
           disabled={isAtRoot || loading}
           aria-label="Go up one directory level"
-          title={isAtRoot ? "Already at home root" : "Go up"}
+          title={isAtRoot ? "Already at root" : "Go up"}
         >
           <IconArrowUp />
         </button>
@@ -680,37 +684,51 @@ export function FolderExplorer({
           aria-label="Folder breadcrumbs"
           data-testid="breadcrumbs"
         >
-          <ol className={styles.breadcrumbs}>
-            {breadcrumbs.map((crumb, i) => {
-              const isLast = i === breadcrumbs.length - 1;
-              return (
-                <li key={crumb.path} className={styles.breadcrumbItem}>
-                  {i > 0 && (
-                    <span className={styles.breadcrumbSep} aria-hidden="true">/</span>
-                  )}
-                  {isLast ? (
-                    <span
-                      className={styles.breadcrumbCurrent}
-                      aria-current="location"
-                      title={crumb.path}
-                    >
-                      {crumb.name}
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      className={styles.breadcrumbButton}
-                      onClick={() => navigate(crumb.path)}
-                      title={crumb.path}
-                      aria-label={`Navigate to ${crumb.name}`}
-                    >
-                      {crumb.name}
-                    </button>
-                  )}
-                </li>
-              );
-            })}
-          </ol>
+          {isDriveList ? (
+            <ol className={styles.breadcrumbs}>
+              <li className={styles.breadcrumbItem}>
+                <span
+                  className={styles.breadcrumbCurrent}
+                  aria-current="location"
+                  title="This PC"
+                >
+                  This PC
+                </span>
+              </li>
+            </ol>
+          ) : (
+            <ol className={styles.breadcrumbs}>
+              {breadcrumbs.map((crumb, i) => {
+                const isLast = i === breadcrumbs.length - 1;
+                return (
+                  <li key={crumb.path} className={styles.breadcrumbItem}>
+                    {i > 0 && (
+                      <span className={styles.breadcrumbSep} aria-hidden="true">/</span>
+                    )}
+                    {isLast ? (
+                      <span
+                        className={styles.breadcrumbCurrent}
+                        aria-current="location"
+                        title={crumb.path}
+                      >
+                        {crumb.name}
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        className={styles.breadcrumbButton}
+                        onClick={() => navigate(crumb.path)}
+                        title={crumb.path}
+                        aria-label={`Navigate to ${crumb.name}`}
+                      >
+                        {crumb.name}
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
+            </ol>
+          )}
         </nav>
 
         {/* Hidden-files toggle */}
@@ -768,7 +786,29 @@ export function FolderExplorer({
       {/* ── Entry list ────────────────────────────────────────────────── */}
       {!loading && !error && (
         <>
-          {sortedEntries.length === 0 ? (
+          {isDriveList ? (
+            /* ── Windows drive list view ─────────────────────────────── */
+            <ul
+              className={styles.driveList}
+              role="listbox"
+              aria-label="Available drives"
+              data-testid="drive-list"
+              onKeyDown={(e) => {
+                if (e.key === "Backspace") {
+                  e.preventDefault();
+                  // Already at drive list — no-op (isAtRoot is true)
+                }
+              }}
+            >
+              {drives.map((drive) => (
+                <DriveItem
+                  key={drive.letter}
+                  drive={drive}
+                  onOpen={openDrive}
+                />
+              ))}
+            </ul>
+          ) : sortedEntries.length === 0 ? (
             <div
               className={styles.statusRegion}
               data-testid="empty-region"
@@ -828,8 +868,7 @@ interface EntryRowProps {
   onDoubleClick: (entry: Entry) => void;
 }
 
-function EntryRow({ entry, isSelected, onSingleClick, onDoubleClick }: EntryRowProps) {
-  const rowRef = useRef<HTMLLIElement>(null);
+function EntryRow({ entry, isSelected, onSingleClick, onDoubleClick }: EntryRowProps) {  const rowRef = useRef<HTMLLIElement>(null);
 
   // Keyboard activation within row (Enter / Space while focused)
   const handleKeyDown = useCallback(
@@ -891,6 +930,43 @@ function EntryRow({ entry, isSelected, onSingleClick, onDoubleClick }: EntryRowP
 
       {/* Name */}
       <span className={nameClassName}>{entry.name}</span>
+    </li>
+  );
+}
+
+// ── DriveItem sub-component ─────────────────────────────────────────────────
+
+interface DriveItemProps {
+  drive: Drive;
+  onOpen: (drive: Drive) => void;
+}
+
+function DriveItem({ drive, onOpen }: DriveItemProps) {
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLLIElement>) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        e.stopPropagation();
+        onOpen(drive);
+      }
+    },
+    [drive, onOpen],
+  );
+
+  return (
+    <li
+      className={styles.driveItem}
+      role="option"
+      aria-selected={false}
+      aria-label={`Drive ${drive.letter}`}
+      tabIndex={0}
+      onClick={() => onOpen(drive)}
+      onDoubleClick={() => onOpen(drive)}
+      onKeyDown={handleKeyDown}
+      data-testid={`drive-${drive.letter}`}
+    >
+      <span className={styles.driveIcon} aria-hidden="true">💾</span>
+      <span className={styles.driveLetter}>{drive.letter}</span>
     </li>
   );
 }
