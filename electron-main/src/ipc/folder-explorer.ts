@@ -54,14 +54,18 @@
 
 import { mkdir, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { platform } from "node:os";
 import type { IpcMain } from "electron";
 
 import {
   resolveWithinHome,
+  resolveForWindows,
   HOME_ROOT,
 } from "../fs/homeJail.ts";
 import { filterEntries } from "../fs/filter.ts";
 import type { FilterOptions } from "../fs/filter.ts";
+
+const IS_WINDOWS = platform() === "win32";
 
 // ── Response Types ─────────────────────────────────────────────────────────
 
@@ -168,6 +172,27 @@ export type ReadChildrenResponse = ReadChildrenResult | FolderExplorerError;
 /** Union of all possible responses from `folder-explorer:mkdir`. */
 export type MkdirResponse = MkdirResult | FolderExplorerError;
 
+// ── Windows Drive Types ─────────────────────────────────────────────────────
+
+/**
+ * A single Windows drive unit.
+ */
+export interface Drive {
+  /** Drive letter + separator, e.g. "C:\\" */
+  letter: string;
+  /** Root path of the drive, e.g. "C:\\" */
+  path: string;
+}
+
+/** Successful response from `folder-explorer:list-drives`. */
+export interface ListDrivesResult {
+  ok: true;
+  drives: Drive[];
+}
+
+/** Union of all possible responses from `folder-explorer:list-drives`. */
+export type ListDrivesResponse = ListDrivesResult | FolderExplorerError;
+
 // ── IPC Channel Names ──────────────────────────────────────────────────────
 
 /**
@@ -184,6 +209,7 @@ export const FOLDER_EXPLORER_CHANNELS = {
   STAT:          "folder-explorer:stat",
   READ_CHILDREN: "folder-explorer:read-children",
   MKDIR:         "folder-explorer:mkdir",
+  LIST_DRIVES:   "folder-explorer:list-drives",
 } as const;
 
 // ── Internal helpers ───────────────────────────────────────────────────────
@@ -298,11 +324,11 @@ async function listDirectory(
   options?: FilterOptions,
 ): Promise<ListResult | FolderExplorerError> {
   // ── Step 1: Jail check ─────────────────────────────────────────────────
-  // resolveWithinHome throws if the path is outside HOME_ROOT, doesn't exist,
-  // or is otherwise invalid (empty string, traversal, symlink escape).
   let safePath: string;
   try {
-    safePath = await resolveWithinHome(rawPath);
+    safePath = IS_WINDOWS
+      ? await resolveForWindows(rawPath)
+      : await resolveWithinHome(rawPath);
   } catch (err) {
     return classifyError(err);
   }
@@ -729,6 +755,39 @@ async function handleMkdir(
   return { ok: true, createdPath: newDirPath };
 }
 
+/**
+ * `folder-explorer:list-drives`
+ *
+ * Lists all available Windows drive units (A:\ to Z:\).
+ * Only available on Windows — returns E_UNKNOWN on other platforms.
+ */
+async function handleListDrives(
+  _event: Electron.IpcMainInvokeEvent,
+): Promise<ListDrivesResponse> {
+  if (!IS_WINDOWS) {
+    return {
+      ok: false,
+      code: "E_UNKNOWN",
+      message: "list-drives is only available on Windows.",
+    };
+  }
+
+  const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+  const drives: Drive[] = [];
+
+  for (const letter of letters) {
+    const drivePath = `${letter}:\\`;
+    try {
+      await stat(drivePath);
+      drives.push({ letter: `${letter}:`, path: drivePath });
+    } catch {
+      // Drive does not exist or is not accessible — skip silently
+    }
+  }
+
+  return { ok: true, drives };
+}
+
 // ── Registration ───────────────────────────────────────────────────────────
 
 /**
@@ -759,6 +818,7 @@ export function registerFolderExplorerHandlers(ipcMain: IpcMain): void {
   ipcMain.handle(FOLDER_EXPLORER_CHANNELS.STAT,          handleStat);
   ipcMain.handle(FOLDER_EXPLORER_CHANNELS.READ_CHILDREN, handleReadChildren);
   ipcMain.handle(FOLDER_EXPLORER_CHANNELS.MKDIR,         handleMkdir);
+  ipcMain.handle(FOLDER_EXPLORER_CHANNELS.LIST_DRIVES,   handleListDrives);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

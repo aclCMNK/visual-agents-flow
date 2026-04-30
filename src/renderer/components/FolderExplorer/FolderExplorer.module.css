@@ -586,3 +586,54 @@
   animation: spin 0.7s linear infinite;
   flex-shrink: 0;
 }
+
+/* ── Windows drive list ──────────────────────────────────────────────────── */
+
+.driveList {
+  list-style: none;
+  margin: 0;
+  padding: var(--fe-spacing-sm, 8px);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fe-spacing-md, 12px);
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1;
+}
+
+.driveItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--fe-spacing-md, 12px);
+  border-radius: var(--fe-radius, 6px);
+  cursor: pointer;
+  min-width: 72px;
+  transition: background 0.15s;
+  outline: none;
+  border: 1px solid transparent;
+  user-select: none;
+}
+
+.driveItem:hover {
+  background: var(--fe-hover-bg, rgba(99, 102, 241, 0.1));
+  border-color: var(--color-border, #2e3147);
+}
+
+.driveItem:focus-visible {
+  outline: 2px solid var(--fe-focus-ring, var(--color-primary, #6366f1));
+  outline-offset: 2px;
+  background: var(--fe-hover-bg, rgba(99, 102, 241, 0.1));
+}
+
+.driveIcon {
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.driveLetter {
+  margin-top: 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text, #e2e4ef);
+}
