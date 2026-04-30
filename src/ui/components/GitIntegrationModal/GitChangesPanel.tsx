@@ -35,9 +35,14 @@ interface CommitActionSectionProps {
 	commitMessage: string;
 	hasChanges: boolean;
 	isCommitting: boolean;
+	isPushing: boolean;
 	isProtectedBranch: boolean;
 	commitError: UiGitError | null;
 	lastCommitSuccess: string | null;
+	lastPushSuccess: boolean | null;
+	pushError: UiGitError | null;
+	lastPushBranch: string | null;
+	lastPushRemote: string | null;
 	onAddAndCommit: () => void;
 }
 
@@ -345,6 +350,22 @@ function CommitActionSection(props: CommitActionSectionProps) {
 				</div>
 			)}
 
+			{props.lastPushSuccess === true && (
+				<div className="git-branches__success-banner" role="status">
+					↑ Pushed to {props.lastPushBranch} on {props.lastPushRemote}
+				</div>
+			)}
+
+			{props.pushError && (
+				<div
+					className="git-branches__error-banner git-branches__error-banner--multiline git-branches__error-banner--warning"
+					role="alert"
+					title={props.pushError.fullMessage}
+				>
+					⚠ Commit saved locally, but push failed: {props.pushError.displayMessage}
+				</div>
+			)}
+
 			<div className="git-changes__action-row">
 				<button
 					type="button"
@@ -356,7 +377,7 @@ function CommitActionSection(props: CommitActionSectionProps) {
 					title="Stages all pending changes and creates one commit"
 				>
 					{props.isCommitting ? (
-						"Committing…"
+						props.isPushing ? "Pushing…" : "Committing…"
 					) : (
 						<>
 							<span aria-hidden="true">✔</span> Add and Commit
@@ -400,10 +421,10 @@ export function GitChangesPanel({ protectedBranch }: GitChangesPanelProps) {
 		state.currentBranch === protectedBranch;
 
 	useEffect(() => {
-		if (!state.lastCommitSuccess) return;
-		const id = window.setTimeout(clearFeedback, 3000);
+		if (!state.lastCommitSuccess && !state.lastPushSuccess && !state.pushError) return;
+		const id = window.setTimeout(clearFeedback, 5000);
 		return () => window.clearTimeout(id);
-	}, [state.lastCommitSuccess, clearFeedback]);
+	}, [state.lastCommitSuccess, state.lastPushSuccess, state.pushError, clearFeedback]);
 
 	if (!projectDir) {
 		return <div className="git-changes__no-project">No project open.</div>;
@@ -446,9 +467,14 @@ export function GitChangesPanel({ protectedBranch }: GitChangesPanelProps) {
 				commitMessage={state.commitMessage}
 				hasChanges={state.files.length > 0}
 				isCommitting={state.isCommitting}
+				isPushing={state.isPushing}
 				isProtectedBranch={isProtectedBranch}
 				commitError={state.commitError}
 				lastCommitSuccess={state.lastCommitSuccess}
+				lastPushSuccess={state.lastPushSuccess}
+				pushError={state.pushError}
+				lastPushBranch={state.lastPushBranch}
+				lastPushRemote={state.lastPushRemote}
 				onAddAndCommit={() => {
 					void addAndCommit();
 				}}

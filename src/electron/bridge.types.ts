@@ -1945,6 +1945,7 @@ export type GitOperationErrorCode =
 	| "E_PROTECTED_BRANCH"
 	| "E_DIVERGENCE_SAVE_FAILED"
 	| "E_TIMEOUT"
+	| "E_PUSH_FAILED"
 	| "E_UNKNOWN";
 
 export interface GitOperationError {
@@ -2255,6 +2256,16 @@ export interface GitAddAndCommitResult {
 	ok: true;
 	commitHash: string;
 	output: string;
+	/** True if a push was attempted (remote was detected) */
+	pushAttempted: boolean;
+	/** True if the push completed successfully */
+	pushOk: boolean;
+	/** Error message from the push, when pushOk === false */
+	pushError?: string;
+	/** URL of the remote that was pushed to */
+	pushRemote?: string;
+	/** Branch that was pushed */
+	pushBranch?: string;
 }
 
 export type GitAddAndCommitResponse = GitAddAndCommitResult | GitOperationError;

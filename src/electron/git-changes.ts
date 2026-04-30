@@ -219,6 +219,24 @@ async function getStatus(projectDir: string): Promise<GitGetStatusResponse> {
 	};
 }
 
+async function detectRemote(projectDir: string): Promise<string | null> {
+	const res = await runGit(projectDir, ["remote", "get-url", "origin"], 5_000);
+	if (res.exitCode === 0 && res.stdout) return res.stdout.trim();
+	return null;
+}
+
+async function pushToRemote(
+	projectDir: string,
+	branch: string,
+): Promise<{ ok: boolean; stderr: string; stdout: string }> {
+	const res = await runGit(projectDir, ["push", "origin", branch], 60_000);
+	return {
+		ok: res.exitCode === 0,
+		stderr: res.stderr,
+		stdout: res.stdout,
+	};
+}
+
 async function addAndCommit(
 	projectDir: string,
 	message: string,
@@ -281,10 +299,46 @@ async function addAndCommit(
 		}
 	}
 
+	// --- POST-COMMIT: auto push if remote is configured ---
+	const remoteUrl = await detectRemote(projectDir);
+
+	if (!remoteUrl) {
+		return {
+			ok: true,
+			commitHash,
+			output,
+			pushAttempted: false,
+			pushOk: false,
+		};
+	}
+
+	const branchRes = await runGit(projectDir, ["rev-parse", "--abbrev-ref", "HEAD"], 5_000);
+	const activeBranch = branchRes.exitCode === 0 ? branchRes.stdout.trim() : "";
+
+	if (!activeBranch || activeBranch === "HEAD") {
+		return {
+			ok: true,
+			commitHash,
+			output,
+			pushAttempted: false,
+			pushOk: false,
+			pushError: "Cannot push: repository is in detached HEAD state.",
+		};
+	}
+
+	const pushResult = await pushToRemote(projectDir, activeBranch);
+
 	return {
 		ok: true,
 		commitHash,
 		output,
+		pushAttempted: true,
+		pushOk: pushResult.ok,
+		pushRemote: remoteUrl,
+		pushBranch: activeBranch,
+		pushError: pushResult.ok
+			? undefined
+			: (pushResult.stderr || "Push failed with no error message."),
 	};
 }
 

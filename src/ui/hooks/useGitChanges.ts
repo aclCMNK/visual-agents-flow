@@ -15,9 +15,14 @@ interface GitChangesState {
 	commitDescription: string;
 	isLoadingStatus: boolean;
 	isCommitting: boolean;
+	isPushing: boolean;
 	statusError: UiGitError | null;
 	commitError: UiGitError | null;
 	lastCommitSuccess: string | null;
+	lastPushSuccess: boolean | null;
+	pushError: UiGitError | null;
+	lastPushBranch: string | null;
+	lastPushRemote: string | null;
 }
 
 type GitChangesAction =
@@ -35,6 +40,9 @@ type GitChangesAction =
 	| { type: "COMMIT_START" }
 	| { type: "COMMIT_SUCCESS"; commitHash: string }
 	| { type: "COMMIT_ERROR"; error: UiGitError }
+	| { type: "PUSH_SUCCESS"; branch: string; remote: string }
+	| { type: "PUSH_SKIPPED" }
+	| { type: "PUSH_ERROR"; error: UiGitError }
 	| { type: "CLEAR_COMMIT_FEEDBACK" }
 	| { type: "RESET_FORM" };
 
@@ -47,9 +55,14 @@ const initialState: GitChangesState = {
 	commitDescription: "",
 	isLoadingStatus: false,
 	isCommitting: false,
+	isPushing: false,
 	statusError: null,
 	commitError: null,
 	lastCommitSuccess: null,
+	lastPushSuccess: null,
+	pushError: null,
+	lastPushBranch: null,
+	lastPushRemote: null,
 };
 
 function reducer(state: GitChangesState, action: GitChangesAction): GitChangesState {
@@ -90,13 +103,19 @@ function reducer(state: GitChangesState, action: GitChangesAction): GitChangesSt
 			return {
 				...state,
 				isCommitting: true,
+				isPushing: false,
 				commitError: null,
 				lastCommitSuccess: null,
+				lastPushSuccess: null,
+				pushError: null,
+				lastPushBranch: null,
+				lastPushRemote: null,
 			};
 		case "COMMIT_SUCCESS":
 			return {
 				...state,
-				isCommitting: false,
+				isCommitting: true,
+				isPushing: true,
 				commitError: null,
 				lastCommitSuccess: action.commitHash,
 			};
@@ -104,13 +123,43 @@ function reducer(state: GitChangesState, action: GitChangesAction): GitChangesSt
 			return {
 				...state,
 				isCommitting: false,
+				isPushing: false,
 				commitError: action.error,
+			};
+		case "PUSH_SUCCESS":
+			return {
+				...state,
+				isCommitting: false,
+				isPushing: false,
+				lastPushSuccess: true,
+				lastPushBranch: action.branch,
+				lastPushRemote: action.remote,
+				pushError: null,
+			};
+		case "PUSH_SKIPPED":
+			return {
+				...state,
+				isCommitting: false,
+				isPushing: false,
+				lastPushSuccess: null,
+			};
+		case "PUSH_ERROR":
+			return {
+				...state,
+				isCommitting: false,
+				isPushing: false,
+				lastPushSuccess: false,
+				pushError: action.error,
 			};
 		case "CLEAR_COMMIT_FEEDBACK":
 			return {
 				...state,
 				commitError: null,
 				lastCommitSuccess: null,
+				lastPushSuccess: null,
+				pushError: null,
+				lastPushBranch: null,
+				lastPushRemote: null,
 			};
 		case "RESET_FORM":
 			return {
@@ -244,6 +293,24 @@ export function useGitChanges(
 
 			dispatch({ type: "COMMIT_SUCCESS", commitHash: result.commitHash });
 			dispatch({ type: "RESET_FORM" });
+
+			if (result.pushAttempted) {
+				if (result.pushOk) {
+					dispatch({
+						type: "PUSH_SUCCESS",
+						branch: result.pushBranch!,
+						remote: result.pushRemote!,
+					});
+				} else {
+					dispatch({
+						type: "PUSH_ERROR",
+						error: toUiGitError(result.pushError ?? "Push failed."),
+					});
+				}
+			} else {
+				dispatch({ type: "PUSH_SKIPPED" });
+			}
+
 			await loadStatus();
 		} catch {
 			dispatch({
