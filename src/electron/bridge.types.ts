@@ -2865,5 +2865,20 @@ declare global {
 			/** os.homedir() — cross-platform user home directory. */
 			home: string;
 		};
+		/**
+		 * Models API bridge — exposes getModels() for the renderer.
+		 * Returns the models.dev/api.json data with caching and fallback.
+		 * Exposed by src/electron/preload.ts via contextBridge.
+		 *
+		 * @see src/renderer/services/models-api.ts for the consumer.
+		 */
+		modelsApi: {
+			getModels(): Promise<{
+				ok: boolean;
+				status: "fresh" | "downloaded" | "fallback" | "unavailable";
+				data: unknown | null;
+				error?: string;
+			}>;
+		};
 	}
 }

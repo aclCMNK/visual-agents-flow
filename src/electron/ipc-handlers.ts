@@ -161,6 +161,8 @@ import { registerGitConfigHandlers } from "./git-config.ts";
 import {
 	registerFolderExplorerHandlers,
 	FOLDER_EXPLORER_CHANNELS,
+	registerModelsApiHandlers,
+	MODELS_API_CHANNELS,
 } from "../../electron-main/src/ipc/index.ts";
 
 // ── Git Clone — active process registry ───────────────────────────────────
@@ -740,6 +742,11 @@ export function registerIpcHandlers(): void {
 	//   "Attempted to register a second handler for 'folder-explorer:list'"
 	// Adding new channel-namespaced constants here is the correct extension point.
 	for (const channel of Object.values(FOLDER_EXPLORER_CHANNELS)) {
+		ipcMain.removeHandler(channel);
+	}
+
+	// ── Also remove models-api channels ──────────────────────────────────────
+	for (const channel of Object.values(MODELS_API_CHANNELS)) {
 		ipcMain.removeHandler(channel);
 	}
 
@@ -2570,6 +2577,7 @@ export function registerIpcHandlers(): void {
 	// matches user-observable startup priority.
 	// ══════════════════════════════════════════════════════════════════════
 	registerFolderExplorerHandlers(ipcMain);
+	registerModelsApiHandlers(ipcMain);
 	registerGitConfigHandlers(ipcMain);
 	registerGitBranchesHandlers(ipcMain);
 	registerGitChangesHandlers(ipcMain);

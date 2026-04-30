@@ -17,7 +17,60 @@ import { useEffect, useState } from "react";
 import { useProjectStore } from "../store/projectStore.ts";
 import { NewProjectModal } from "./NewProjectModal.tsx";
 import { CloneFromGitModal } from "./CloneFromGitModal.tsx";
+import { ModelsStatusMessage, type MessageKind } from "./ModelsStatusMessage.tsx";
+import { useModelsApi } from "../../renderer/hooks/useModelsApi.ts";
 import logoEditorSvg from "../../assets/logos/logo editor.svg";
+import type { ModelsApiStatus } from "../../renderer/services/models-api.ts";
+
+// ── Helper: derive models status message ──────────────────────────────────
+
+interface ModelsMessage {
+  text: string;
+  kind: MessageKind;
+  dismissible: boolean;
+}
+
+export function deriveModelsMessage(
+  loading: boolean,
+  status: ModelsApiStatus | null,
+): ModelsMessage | null {
+  if (loading) {
+    return {
+      text: "Updating models data...",
+      kind: "info",
+      dismissible: false,
+    };
+  }
+
+  switch (status) {
+    case "fresh":
+      return null; // silent — no message needed
+
+    case "downloaded":
+      return {
+        text: "Models data updated!",
+        kind: "success",
+        dismissible: false, // auto-dismiss in 3s
+      };
+
+    case "fallback":
+      return {
+        text: "Failed to update models data, using previous version",
+        kind: "warning",
+        dismissible: false, // auto-dismiss in 5s
+      };
+
+    case "unavailable":
+      return {
+        text: "Failed to download models data. Some features may be limited.",
+        kind: "error",
+        dismissible: true, // permanent until user closes
+      };
+
+    default:
+      return null;
+  }
+}
 
 // ── Component ──────────────────────────────────────────────────────────────
 
@@ -43,6 +96,14 @@ export function ProjectBrowser() {
 		loadRecentProjects();
 	}, [loadRecentProjects]);
 
+	// ── Models API status ────────────────────────────────────────────────
+	const { loading: modelsLoading, status: modelsStatus } = useModelsApi();
+	const [modelsMessageDismissed, setModelsMessageDismissed] = useState(false);
+
+	const modelsMessage = modelsMessageDismissed
+		? null
+		: deriveModelsMessage(modelsLoading, modelsStatus);
+
 	const isBusy = isLoading || isValidating;
 
 	return (
@@ -60,6 +121,16 @@ export function ProjectBrowser() {
 					}}
 				/>
 			</header>
+
+			{/* ── Models data status message ──────────────────────────────── */}
+			{modelsMessage && (
+				<ModelsStatusMessage
+					message={modelsMessage.text}
+					kind={modelsMessage.kind}
+					dismissible={modelsMessage.dismissible}
+					onDismiss={() => setModelsMessageDismissed(true)}
+				/>
+			)}
 
 			{/* ── Error banner ───────────────────────────────────────────── */}
 			{lastError && (

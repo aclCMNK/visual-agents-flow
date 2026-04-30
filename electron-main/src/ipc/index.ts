@@ -45,6 +45,13 @@ export {
   FOLDER_EXPLORER_CHANNELS,
 } from "./folder-explorer.ts";
 
+// ── Models API ───────────────────────────────────────────────────────────────
+export {
+  registerModelsApiHandlers,
+  MODELS_API_CHANNELS,
+} from "./models-api.ts";
+export type { ModelsApiStatus, ModelsApiResult } from "./models-api.ts";
+
 // ── Re-export types so consumers import from a single place ─────────────────
 // (Adding `export type` keeps them tree-shakeable and avoids value-import overhead.)
 export type {
