@@ -73,6 +73,40 @@ async function makeClonedRepoWithOriginMain(): Promise<{ cloneDir: string; clean
 	return { cloneDir, cleanupPaths: [root] };
 }
 
+async function makeClonedRepoOnDivergenceBranch(): Promise<{
+	cloneDir: string;
+	divergenceBranch: string;
+	cleanupPaths: string[];
+}> {
+	const root = await mkdtemp(join(tmpdir(), "af-git-divergence-guard-"));
+	const sourceDir = join(root, "source");
+	const bareDir = join(root, "origin.git");
+	const cloneDir = join(root, "clone");
+
+	await mkdir(sourceDir, { recursive: true });
+	await runGit(sourceDir, ["init"]);
+	await runGit(sourceDir, ["config", "user.name", "Test User"]);
+	await runGit(sourceDir, ["config", "user.email", "test@example.com"]);
+	await runGit(sourceDir, ["checkout", "-b", "main"]);
+	await writeFile(join(sourceDir, "README.md"), "main\n", "utf-8");
+	await runGit(sourceDir, ["add", "README.md"]);
+	await runGit(sourceDir, ["commit", "-m", "seed main"]);
+
+	await runGit(root, ["clone", "--bare", sourceDir, bareDir]);
+	await runGit(root, ["clone", bareDir, cloneDir]);
+	await runGit(cloneDir, ["config", "user.name", "Test User"]);
+	await runGit(cloneDir, ["config", "user.email", "test@example.com"]);
+
+	// Simulate a divergence: create a local-changes-* branch and check it out
+	const divergenceBranch = "local-changes-20260429-120000";
+	await runGit(cloneDir, ["checkout", "-b", divergenceBranch]);
+	await writeFile(join(cloneDir, "local.txt"), "local changes\n", "utf-8");
+	await runGit(cloneDir, ["add", "local.txt"]);
+	await runGit(cloneDir, ["commit", "-m", "chore: save local changes before remote sync [agentsflow-auto]"]);
+
+	return { cloneDir, divergenceBranch, cleanupPaths: [root] };
+}
+
 describe("Protected branch bugs — backend enforcement", () => {
 	it("always returns all local branches including protected while detached", async () => {
 		const repoDir = await makeRepoWithMainBranch();
@@ -175,6 +209,206 @@ describe("Protected branch bugs — backend enforcement", () => {
 			for (const p of cleanupPaths) {
 				await rm(p, { recursive: true, force: true });
 			}
+		}
+	});
+
+	// FIX: BUG_DIVERGENCE_BRANCH_CHECKOUT — Bug 1
+	// ensureLocalBranch must NOT checkout to protected branch when user is on local-changes-*
+	it("[FIX-DIV-GUARD-1] ensureLocalBranch does NOT checkout to protected branch when user is on local-changes-*", async () => {
+		const { cloneDir, divergenceBranch, cleanupPaths } = await makeClonedRepoOnDivergenceBranch();
+		try {
+			const ipcMain = makeIpcMainMock();
+			registerGitBranchesHandlers(ipcMain as any);
+			const ensureLocalBranch = ipcMain.getHandler(IPC_CHANNELS.GIT_ENSURE_LOCAL_BRANCH);
+
+			// Precondition: user is on local-changes-* branch
+			const headBefore = await runGit(cloneDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
+			expect(headBefore).toBe(divergenceBranch);
+
+			// Call ensureLocalBranch for the protected branch (main already exists locally)
+			const result = await ensureLocalBranch({}, {
+				projectDir: cloneDir,
+				branch: "main",
+			});
+
+			// Must succeed
+			expect(result.ok).toBe(true);
+			expect(result.branch).toBe("main");
+			expect(result.created).toBe(false);
+
+			// INVARIANT: user must still be on local-changes-* — no checkout to main
+			const headAfter = await runGit(cloneDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
+			expect(headAfter).toBe(divergenceBranch);
+			expect(headAfter).not.toBe("main");
+		} finally {
+			for (const p of cleanupPaths) {
+				await rm(p, { recursive: true, force: true });
+			}
+		}
+	});
+
+	// FIX: BUG_DIVERGENCE_BRANCH_CHECKOUT — Bug 1 (variant: local-changes-* with timestamp suffix)
+	// Ensures the startsWith("local-changes-") guard works for any timestamp variant
+	it("[FIX-DIV-GUARD-1] ensureLocalBranch preserves any local-changes-YYYYMMDD-HHMMSS variant", async () => {
+		const { cloneDir, cleanupPaths } = await makeClonedRepoWithOriginMain();
+		try {
+			await runGit(cloneDir, ["config", "user.name", "Test User"]);
+			await runGit(cloneDir, ["config", "user.email", "test@example.com"]);
+
+			// Simulate divergence branch with a different timestamp
+			const divergenceBranch = "local-changes-20260101-093045";
+			await runGit(cloneDir, ["checkout", "-b", divergenceBranch]);
+			await writeFile(join(cloneDir, "change.txt"), "change\n", "utf-8");
+			await runGit(cloneDir, ["add", "change.txt"]);
+			await runGit(cloneDir, ["commit", "-m", "chore: save local changes [agentsflow-auto]"]);
+
+			const ipcMain = makeIpcMainMock();
+			registerGitBranchesHandlers(ipcMain as any);
+			const ensureLocalBranch = ipcMain.getHandler(IPC_CHANNELS.GIT_ENSURE_LOCAL_BRANCH);
+
+			const result = await ensureLocalBranch({}, {
+				projectDir: cloneDir,
+				branch: "main",
+			});
+
+			expect(result.ok).toBe(true);
+
+			// INVARIANT: still on divergence branch
+			const headAfter = await runGit(cloneDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
+			expect(headAfter).toBe(divergenceBranch);
+			expect(headAfter).not.toBe("main");
+		} finally {
+			for (const p of cleanupPaths) {
+				await rm(p, { recursive: true, force: true });
+			}
+		}
+	});
+
+	// FIX: BUG_DIVERGENCE_BRANCH_CHECKOUT — Bug 1 (variant: random suffix)
+	// Ensures the guard works for local-changes-*-XXXX (with random suffix from collision avoidance)
+	it("[FIX-DIV-GUARD-1] ensureLocalBranch preserves local-changes-* with random suffix", async () => {
+		const { cloneDir, cleanupPaths } = await makeClonedRepoWithOriginMain();
+		try {
+			await runGit(cloneDir, ["config", "user.name", "Test User"]);
+			await runGit(cloneDir, ["config", "user.email", "test@example.com"]);
+
+			// Simulate divergence branch with random suffix (collision avoidance)
+			const divergenceBranch = "local-changes-20260429-120000-ab3f";
+			await runGit(cloneDir, ["checkout", "-b", divergenceBranch]);
+			await writeFile(join(cloneDir, "extra.txt"), "extra\n", "utf-8");
+			await runGit(cloneDir, ["add", "extra.txt"]);
+			await runGit(cloneDir, ["commit", "-m", "chore: save local changes [agentsflow-auto]"]);
+
+			const ipcMain = makeIpcMainMock();
+			registerGitBranchesHandlers(ipcMain as any);
+			const ensureLocalBranch = ipcMain.getHandler(IPC_CHANNELS.GIT_ENSURE_LOCAL_BRANCH);
+
+			const result = await ensureLocalBranch({}, {
+				projectDir: cloneDir,
+				branch: "main",
+			});
+
+			expect(result.ok).toBe(true);
+
+			// INVARIANT: still on divergence branch (with suffix)
+			const headAfter = await runGit(cloneDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
+			expect(headAfter).toBe(divergenceBranch);
+			expect(headAfter).not.toBe("main");
+		} finally {
+			for (const p of cleanupPaths) {
+				await rm(p, { recursive: true, force: true });
+			}
+		}
+	});
+
+	// FIX: BUG_DIVERGENCE_BRANCH_CHECKOUT — verify normal flow still works (regression guard)
+	// When user is NOT on local-changes-*, ensureLocalBranch MUST still checkout to protected branch
+	it("[FIX-DIV-GUARD-REGRESSION] ensureLocalBranch still checks out to protected branch when NOT on local-changes-*", async () => {
+		const { cloneDir, cleanupPaths } = await makeClonedRepoWithOriginMain();
+		try {
+			await runGit(cloneDir, ["config", "user.name", "Test User"]);
+			await runGit(cloneDir, ["config", "user.email", "test@example.com"]);
+
+			// Create and switch to a regular feature branch (not local-changes-*)
+			await runGit(cloneDir, ["checkout", "-b", "feature-xyz"]);
+
+			const ipcMain = makeIpcMainMock();
+			registerGitBranchesHandlers(ipcMain as any);
+			const ensureLocalBranch = ipcMain.getHandler(IPC_CHANNELS.GIT_ENSURE_LOCAL_BRANCH);
+
+			const result = await ensureLocalBranch({}, {
+				projectDir: cloneDir,
+				branch: "main",
+			});
+
+			expect(result.ok).toBe(true);
+			expect(result.branch).toBe("main");
+
+			// Normal flow: user should be checked out to main
+			const headAfter = await runGit(cloneDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
+			expect(headAfter).toBe("main");
+		} finally {
+			for (const p of cleanupPaths) {
+				await rm(p, { recursive: true, force: true });
+			}
+		}
+	});
+
+	// FIX: BUG_DIVERGENCE_BRANCH_CHECKOUT — end-to-end divergence flow
+	// After handleDivergence succeeds, a subsequent ensureLocalBranch call must NOT move the user
+	it("[FIX-DIV-GUARD-E2E] after handleDivergence, ensureLocalBranch does not move user off local-changes-*", async () => {
+		const { rootDir, cloneDir } = await (async () => {
+			const root = await mkdtemp(join(tmpdir(), "af-git-e2e-divergence-"));
+			const sourceDir = join(root, "source");
+			const bareDir = join(root, "origin.git");
+			const cloneDir = join(root, "clone");
+
+			await mkdir(sourceDir, { recursive: true });
+			await runGit(sourceDir, ["init"]);
+			await runGit(sourceDir, ["config", "user.name", "Test User"]);
+			await runGit(sourceDir, ["config", "user.email", "test@example.com"]);
+			await runGit(sourceDir, ["checkout", "-b", "main"]);
+			await writeFile(join(sourceDir, "README.md"), "base\n", "utf-8");
+			await runGit(sourceDir, ["add", "README.md"]);
+			await runGit(sourceDir, ["commit", "-m", "initial"]);
+
+			await runGit(root, ["clone", "--bare", sourceDir, bareDir]);
+			await runGit(root, ["clone", bareDir, cloneDir]);
+			await runGit(cloneDir, ["config", "user.name", "Test User"]);
+			await runGit(cloneDir, ["config", "user.email", "test@example.com"]);
+
+			return { rootDir: root, cloneDir };
+		})();
+
+		try {
+			// Introduce dirty tree to trigger divergence
+			await writeFile(join(cloneDir, "work.txt"), "in progress\n", "utf-8");
+
+			const ipcMain = makeIpcMainMock();
+			registerGitBranchesHandlers(ipcMain as any);
+			const handleDivergence = ipcMain.getHandler(IPC_CHANNELS.GIT_HANDLE_DIVERGENCE);
+			const ensureLocalBranch = ipcMain.getHandler(IPC_CHANNELS.GIT_ENSURE_LOCAL_BRANCH);
+
+			// Step 1: handle divergence → user lands on local-changes-*
+			const divResult = await handleDivergence({}, { projectDir: cloneDir, remoteBranch: "main" });
+			expect(divResult.ok).toBe(true);
+			expect(divResult.divergenceDetected).toBe(true);
+			const savedBranch = divResult.savedBranch as string;
+			expect(savedBranch).toMatch(/^local-changes-/);
+
+			const headAfterDiv = await runGit(cloneDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
+			expect(headAfterDiv).toBe(savedBranch);
+
+			// Step 2: simulate loadBranches calling ensureLocalBranch (Bug 2 scenario)
+			const ensureResult = await ensureLocalBranch({}, { projectDir: cloneDir, branch: "main" });
+			expect(ensureResult.ok).toBe(true);
+
+			// INVARIANT: user must still be on local-changes-* after ensureLocalBranch
+			const headAfterEnsure = await runGit(cloneDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
+			expect(headAfterEnsure).toBe(savedBranch);
+			expect(headAfterEnsure).not.toBe("main");
+		} finally {
+			await rm(rootDir, { recursive: true, force: true });
 		}
 	});
 });

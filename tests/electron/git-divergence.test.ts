@@ -78,9 +78,10 @@ describe("Git divergence handling", () => {
 		}
 	});
 
-	it("saves dirty tree to local-changes branch and syncs main", async () => {
+	it("saves dirty tree to local-changes branch and keeps user there", async () => {
 		const { rootDir, cloneDir } = await makeRemoteAndClone();
 		try {
+			const mainHeadBefore = await runGit(cloneDir, ["rev-parse", "refs/heads/main"]);
 			await writeFile(join(cloneDir, "README.md"), "base\ndirty\n", "utf-8");
 
 			const ipcMain = makeIpcMainMock();
@@ -93,14 +94,144 @@ describe("Git divergence handling", () => {
 			expect(result.divergenceDetected).toBe(true);
 			expect(result.savedBranch).toMatch(/^local-changes-/);
 			expect(result.message).toContain(result.savedBranch as string);
+			expect(result.message).toContain("You are now working on");
+			expect(result.message).toContain("No changes were made to your main branch");
 
+			// CA-01 / CA-06: HEAD must be exactly savedBranch — no checkout to main after divergence
 			const currentBranch = await runGit(cloneDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
-			expect(currentBranch).toBe("main");
+			expect(currentBranch).toBe(result.savedBranch);
+
+			// CA-04: main branch HEAD must not have changed
+			const mainHeadAfter = await runGit(cloneDir, ["rev-parse", "refs/heads/main"]);
+			expect(mainHeadAfter).toBe(mainHeadBefore);
+
+			// CA-03: message names the exact savedBranch
+			expect(result.message).toContain(result.savedBranch as string);
 
 			await runGit(cloneDir, ["rev-parse", "--verify", `refs/heads/${result.savedBranch as string}`]);
 			await runGit(cloneDir, ["checkout", result.savedBranch as string]);
 			const latestMsg = await runGit(cloneDir, ["log", "-1", "--pretty=%s"]);
 			expect(latestMsg).toContain("[agentsflow-auto]");
+		} finally {
+			await rm(rootDir, { recursive: true, force: true });
+		}
+	});
+
+	// GIT-DIV-002 — CA-01/CA-06: invariant — HEAD === savedBranch after divergence (dirty tree)
+	it("[GIT-DIV-002] HEAD equals savedBranch after divergence with dirty tree — no checkout to main", async () => {
+		const { rootDir, cloneDir } = await makeRemoteAndClone();
+		try {
+			await writeFile(join(cloneDir, "newfile.txt"), "uncommitted\n", "utf-8");
+
+			const ipcMain = makeIpcMainMock();
+			registerGitBranchesHandlers(ipcMain as any);
+			const handleDivergence = ipcMain.getHandler(IPC_CHANNELS.GIT_HANDLE_DIVERGENCE);
+
+			const result = await handleDivergence({}, { projectDir: cloneDir, remoteBranch: "main" });
+
+			expect(result.ok).toBe(true);
+			expect(result.divergenceDetected).toBe(true);
+
+			// Invariant: getCurrentBranch() === savedBranch — no exceptions
+			const head = await runGit(cloneDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
+			expect(head).toBe(result.savedBranch);
+			expect(head).not.toBe("main");
+		} finally {
+			await rm(rootDir, { recursive: true, force: true });
+		}
+	});
+
+	// GIT-DIV-002 — CA-01/CA-06: invariant — HEAD === savedBranch after divergence (local commits ahead)
+	it("[GIT-DIV-002] HEAD equals savedBranch after divergence with local commits ahead — no checkout to main", async () => {
+		const { rootDir, cloneDir } = await makeRemoteAndClone();
+		try {
+			await writeFile(join(cloneDir, "feature.txt"), "feature\n", "utf-8");
+			await runGit(cloneDir, ["add", "feature.txt"]);
+			await runGit(cloneDir, ["commit", "-m", "local feature commit"]);
+
+			const ipcMain = makeIpcMainMock();
+			registerGitBranchesHandlers(ipcMain as any);
+			const handleDivergence = ipcMain.getHandler(IPC_CHANNELS.GIT_HANDLE_DIVERGENCE);
+
+			const result = await handleDivergence({}, { projectDir: cloneDir, remoteBranch: "main" });
+
+			expect(result.ok).toBe(true);
+			expect(result.divergenceDetected).toBe(true);
+
+			// Invariant: getCurrentBranch() === savedBranch — no exceptions
+			const head = await runGit(cloneDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
+			expect(head).toBe(result.savedBranch);
+			expect(head).not.toBe("main");
+		} finally {
+			await rm(rootDir, { recursive: true, force: true });
+		}
+	});
+
+	// GIT-DIV-002 — CA-01/CA-06: invariant — HEAD === savedBranch with dirty tree + local commits ahead combined
+	it("[GIT-DIV-002] HEAD equals savedBranch after divergence with dirty tree AND local commits ahead", async () => {
+		const { rootDir, cloneDir } = await makeRemoteAndClone();
+		try {
+			// Local commit ahead
+			await writeFile(join(cloneDir, "committed.txt"), "committed\n", "utf-8");
+			await runGit(cloneDir, ["add", "committed.txt"]);
+			await runGit(cloneDir, ["commit", "-m", "local commit"]);
+			// Plus dirty tree
+			await writeFile(join(cloneDir, "dirty.txt"), "dirty\n", "utf-8");
+
+			const mainHeadBefore = await runGit(cloneDir, ["rev-parse", "refs/heads/main"]);
+
+			const ipcMain = makeIpcMainMock();
+			registerGitBranchesHandlers(ipcMain as any);
+			const handleDivergence = ipcMain.getHandler(IPC_CHANNELS.GIT_HANDLE_DIVERGENCE);
+
+			const result = await handleDivergence({}, { projectDir: cloneDir, remoteBranch: "main" });
+
+			expect(result.ok).toBe(true);
+			expect(result.divergenceDetected).toBe(true);
+
+			// CA-01: HEAD must be tempBranch
+			const head = await runGit(cloneDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
+			expect(head).toBe(result.savedBranch);
+			expect(head).not.toBe("main");
+
+			// CA-04: main must not have new commits
+			const mainHeadAfter = await runGit(cloneDir, ["rev-parse", "refs/heads/main"]);
+			expect(mainHeadAfter).toBe(mainHeadBefore);
+
+			// CA-03: message contains exact savedBranch name and confirms position
+			expect(result.message).toContain(result.savedBranch as string);
+			expect(result.message).toContain("You are now working on");
+			expect(result.message).toContain("No changes were made to your main branch");
+		} finally {
+			await rm(rootDir, { recursive: true, force: true });
+		}
+	});
+
+	// GIT-DIV-002 — CA-03: message format — names exact branch and confirms position
+	it("[GIT-DIV-002] return message names exact savedBranch and confirms user position", async () => {
+		const { rootDir, cloneDir } = await makeRemoteAndClone();
+		try {
+			await writeFile(join(cloneDir, "change.txt"), "change\n", "utf-8");
+
+			const ipcMain = makeIpcMainMock();
+			registerGitBranchesHandlers(ipcMain as any);
+			const handleDivergence = ipcMain.getHandler(IPC_CHANNELS.GIT_HANDLE_DIVERGENCE);
+
+			const result = await handleDivergence({}, { projectDir: cloneDir, remoteBranch: "main" });
+
+			expect(result.ok).toBe(true);
+			expect(result.divergenceDetected).toBe(true);
+
+			const savedBranch = result.savedBranch as string;
+			// CA-03: message must name the exact branch
+			expect(result.message).toContain(savedBranch);
+			// CA-03: message must confirm user is there now
+			expect(result.message).toContain("You are now working on");
+			// CA-03: message must confirm main was not modified
+			expect(result.message).toContain("No changes were made to your main branch");
+			// The message must contain savedBranch at least twice (saved in + working on)
+			const occurrences = (result.message as string).split(savedBranch).length - 1;
+			expect(occurrences).toBeGreaterThanOrEqual(2);
 		} finally {
 			await rm(rootDir, { recursive: true, force: true });
 		}
@@ -123,8 +254,10 @@ describe("Git divergence handling", () => {
 			expect(result.divergenceDetected).toBe(true);
 			expect(result.savedBranch).toMatch(/^local-changes-/);
 
+			// CA-01 / CA-06: HEAD must be savedBranch — not main
 			const currentBranch = await runGit(cloneDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
-			expect(currentBranch).toBe("main");
+			expect(currentBranch).toBe(result.savedBranch);
+			expect(currentBranch).not.toBe("main");
 
 			await runGit(cloneDir, ["checkout", result.savedBranch as string]);
 			const latestMsg = await runGit(cloneDir, ["log", "-1", "--pretty=%s"]);
@@ -169,8 +302,10 @@ describe("Git divergence handling", () => {
 			expect(result.divergenceDetected).toBe(true);
 			expect(result.savedBranch).toMatch(/^local-changes-/);
 
+			// CA-01 / CA-06: HEAD must be savedBranch after divergence in empty repo scenario
 			const currentBranch = await runGit(localDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
-			expect(currentBranch).toBe("main");
+			expect(currentBranch).toBe(result.savedBranch);
+			expect(currentBranch).not.toBe("main");
 		} finally {
 			await rm(rootDir, { recursive: true, force: true });
 		}

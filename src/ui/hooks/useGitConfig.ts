@@ -481,16 +481,30 @@ export function useGitConfig(projectDir: string | null): UseGitConfigResult {
 							error: divergenceResult.message,
 						});
 
-						const ensureResult = await bridge.gitEnsureLocalBranch({
-							projectDir,
-							branch: detectResult.branch,
-						});
-						if (!ensureResult.ok) {
-							dispatch({
-								type: "CONNECT_ERROR",
-								error: ensureResult.message,
-							});
-							return;
+						// Guard: after a divergence failure the user may already be on a
+						// local-changes-* branch (partial divergence) or on the original
+						// branch. Only call ensureLocalBranch when NOT on a divergence
+						// branch, to avoid an unwanted checkout that would move the user
+						// away from their temporary safety branch.
+						const bridge2 = getBridge();
+						if (bridge2) {
+							const currentBranchRes = await bridge2.gitListBranches({ projectDir });
+							const currentBranch = currentBranchRes.ok ? currentBranchRes.currentBranch : "";
+							const isOnDivergenceBranch = currentBranch.startsWith("local-changes-");
+
+							if (!isOnDivergenceBranch) {
+								const ensureResult = await bridge2.gitEnsureLocalBranch({
+									projectDir,
+									branch: detectResult.branch,
+								});
+								if (!ensureResult.ok) {
+									dispatch({
+										type: "CONNECT_ERROR",
+										error: ensureResult.message,
+									});
+									return;
+								}
+							}
 						}
 					} else {
 						dispatch({

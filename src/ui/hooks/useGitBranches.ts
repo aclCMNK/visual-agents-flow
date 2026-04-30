@@ -350,7 +350,13 @@ export function useGitBranches(
 		let branches = res.branches;
 		let currentBranch = res.currentBranch;
 
-		if (desiredProtectedBranch.length > 0 && !hasLocalProtectedBranch) {
+		// Guard: never call ensureLocalBranch (which performs a checkout) when the
+		// user is currently on a divergence-safety branch (local-changes-*).
+		// Doing so would silently move them away from their temporary branch after
+		// a successful divergence flow.
+		const isOnDivergenceBranch = res.currentBranch.startsWith("local-changes-");
+
+		if (desiredProtectedBranch.length > 0 && !hasLocalProtectedBranch && !isOnDivergenceBranch) {
 			const ensureRes = await bridge.gitEnsureLocalBranch({
 				projectDir,
 				branch: desiredProtectedBranch,

@@ -256,7 +256,7 @@ function buildDivergenceMessage(
 	branchName: string,
 	stashPopHadConflicts: boolean,
 ): string {
-	const base = `Your local changes have been saved in the branch '${branchName}'. You can merge them into the main branch when ready.`;
+	const base = `Your local changes have been saved in the branch '${branchName}'. You are now working on '${branchName}'. No changes were made to your main branch.`;
 	if (!stashPopHadConflicts) return base;
 	return `${base} Note: Some changes could not be automatically restored. Run 'git stash list' to find them.`;
 }
@@ -467,51 +467,29 @@ async function handleDivergence(
 		}
 	}
 
-	if (!divergence.hasRemoteRef) {
-		return {
-			ok: true,
-			divergenceDetected: true,
-			savedBranch: tempBranch,
-			message: buildDivergenceMessage(tempBranch, stashPopHadConflicts),
-		};
-	}
+	let finalBranch = await getCurrentBranch(projectDir);
+	if (finalBranch !== tempBranch) {
+		const checkoutTempRes = await runGit(projectDir, ["checkout", tempBranch]);
+		if (checkoutTempRes.exitCode !== 0) {
+			return gitError(
+				"E_DIVERGENCE_SAVE_FAILED",
+				`Local changes saved to '${tempBranch}', but could not switch to it automatically.`,
+				checkoutTempRes.stderr || undefined,
+				[checkoutTempRes.stderr, checkoutTempRes.stdout]
+					.filter(Boolean)
+					.join("\n") || undefined,
+			);
+		}
 
-	const localExistsRes = await runGit(projectDir, [
-		"show-ref",
-		"--verify",
-		"--quiet",
-		`refs/heads/${remoteBranch}`,
-	]);
-
-	let checkoutRes: RunGitResult;
-	if (localExistsRes.exitCode === 0) {
-		checkoutRes = await runGit(projectDir, ["checkout", remoteBranch]);
-	} else {
-		checkoutRes = await runGit(projectDir, [
-			"checkout",
-			"-b",
-			remoteBranch,
-			`origin/${remoteBranch}`,
-		]);
-	}
-
-	if (checkoutRes.exitCode !== 0) {
-		return gitError(
-			"E_DIVERGENCE_SAVE_FAILED",
-			`Local changes saved to '${tempBranch}', but could not checkout '${remoteBranch}'.`,
-			checkoutRes.stderr || undefined,
-			[checkoutRes.stderr, checkoutRes.stdout].filter(Boolean).join("\n") || undefined,
-		);
-	}
-
-	const pullRes = await runGit(projectDir, ["pull", "--ff-only"], 30_000);
-	if (pullRes.exitCode !== 0) {
-		return gitError(
-			"E_DIVERGENCE_SAVE_FAILED",
-			`Local changes saved to '${tempBranch}', but pull failed on '${remoteBranch}'.`,
-			pullRes.stderr || undefined,
-			[pullRes.stderr, pullRes.stdout].filter(Boolean).join("\n") || undefined,
-		);
+		finalBranch = await getCurrentBranch(projectDir);
+		if (finalBranch !== tempBranch) {
+			return gitError(
+				"E_DIVERGENCE_SAVE_FAILED",
+				`Local changes saved to '${tempBranch}', but could not confirm active branch after automatic checkout.`,
+				undefined,
+				`Expected '${tempBranch}' but found '${finalBranch || "(detached HEAD)"}'.`,
+			);
+		}
 	}
 
 	return {
@@ -879,6 +857,23 @@ async function ensureLocalBranch(
 			.trim();
 
 		return { ok: true, branch: branchName, created: true, output };
+	}
+
+	// Guard: if the user is currently on a divergence-safety branch (local-changes-*),
+	// do NOT perform a checkout — that would silently move them away from their
+	// temporary branch after a successful divergence flow.
+	// We still pull updates for the target branch without switching to it.
+	const activeBranch = await getCurrentBranch(projectDir);
+	const isOnDivergenceBranch = activeBranch.startsWith("local-changes-");
+
+	if (isOnDivergenceBranch) {
+		// The local branch already exists; skip checkout to preserve the user's
+		// current divergence branch. Return success without switching.
+		const output = [fetchRes.stdout, fetchRes.stderr]
+			.filter(Boolean)
+			.join("\n")
+			.trim();
+		return { ok: true, branch: branchName, created: false, output };
 	}
 
 	const checkoutRes = await runGit(projectDir, ["checkout", branchName]);
