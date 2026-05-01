@@ -65,6 +65,11 @@
 import os from "node:os";
 import { contextBridge, ipcRenderer } from "electron";
 import { IPC_CHANNELS } from "./bridge.types.ts";
+import {
+  FOLDER_EXPLORER_CHANNELS,
+  MODELS_API_CHANNELS,
+  OPENCODE_MODELS_CHANNELS,
+} from "../../electron-main/src/ipc/index.ts";
 import type {
 	AgentsFlowBridge,
 	LoadProjectRequest,
@@ -712,3 +717,71 @@ contextBridge.exposeInMainWorld("appPaths", {
 });
 
 console.log(`[preload] window.appPaths exposed — home: ${os.homedir()}`);
+
+// ── window.modelsApi — Models.dev API bridge ──────────────────────────────
+//
+// Exposes getModels() so the renderer can request models.dev/api.json data
+// through the main process (which handles caching, download, and fallback).
+//
+// IPC channel: "models-api:get-models"
+// Handler:     electron-main/src/ipc/models-api.ts → handleGetModels()
+// Cache:       electron-main/src/fs/models-api-cache.ts
+//
+// The renderer consumes this via:
+//   src/renderer/services/models-api.ts → getModels()
+//
+// Gotcha: contextBridge.exposeInMainWorld() can only be called once per key.
+// This MUST live in this single preload — not in a separate file.
+
+contextBridge.exposeInMainWorld("modelsApi", {
+	/**
+	 * Fetches models.dev/api.json with caching and fallback.
+	 * Returns ModelsApiResult: { ok, status, data, error? }
+	 * Status values: "fresh" | "downloaded" | "fallback" | "unavailable"
+	 */
+	getModels(): Promise<{
+		ok: boolean;
+		status: "fresh" | "downloaded" | "fallback" | "unavailable";
+		data: unknown | null;
+		error?: string;
+	}> {
+		return ipcRenderer.invoke("models-api:get-models") as Promise<{
+			ok: boolean;
+			status: "fresh" | "downloaded" | "fallback" | "unavailable";
+			data: unknown | null;
+			error?: string;
+		}>;
+	},
+});
+
+console.log("[preload] window.modelsApi exposed — channel: models-api:get-models");
+
+// ── window.opencodeModels — opencode CLI models bridge ────────────────────
+//
+// Exposes listModels() so the renderer can request the list of models
+// available in the local opencode CLI installation.
+//
+// IPC channel: "opencode-models:list"
+// Handler:     electron-main/src/ipc/opencode-models.ts → runOpencodeModels()
+//
+// The renderer consumes this via:
+//   src/renderer/services/opencode-models.ts → listModels()
+//
+// Gotcha: contextBridge.exposeInMainWorld() can only be called once per key.
+// This MUST live in this single preload — not in a separate file.
+
+contextBridge.exposeInMainWorld("opencodeModels", {
+  /**
+   * Runs `opencode models` and returns the parsed provider→models map.
+   * Returns OpencodeModelsResult: { ok, models, error? }
+   */
+  listModels(): Promise<{ ok: boolean; models: Record<string, string[]>; error?: string }> {
+    return ipcRenderer.invoke(OPENCODE_MODELS_CHANNELS.LIST_MODELS) as Promise<{
+      ok: boolean;
+      models: Record<string, string[]>;
+      error?: string;
+    }>;
+  },
+});
+
+console.log("[preload] window.opencodeModels exposed — channel: opencode-models:list");

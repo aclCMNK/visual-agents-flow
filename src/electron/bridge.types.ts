@@ -2865,5 +2865,37 @@ declare global {
 			/** os.homedir() — cross-platform user home directory. */
 			home: string;
 		};
+		/**
+		 * Models API bridge — exposes getModels() for the renderer.
+		 * Returns the models.dev/api.json data with caching and fallback.
+		 * Exposed by src/electron/preload.ts via contextBridge.
+		 *
+		 * @see src/renderer/services/models-api.ts for the consumer.
+		 */
+		modelsApi: {
+			getModels(): Promise<{
+				ok: boolean;
+				status: "fresh" | "downloaded" | "fallback" | "unavailable";
+				data: unknown | null;
+				error?: string;
+			}>;
+		};
+		/**
+		 * OpenCode Models bridge — exposes listModels() for the renderer.
+		 * Runs `opencode models` as a child process and returns the parsed map.
+		 * Exposed by src/electron/preload.ts via contextBridge.
+		 *
+		 * @see src/renderer/services/opencode-models.ts for the consumer.
+		 */
+		opencodeModels?: {
+			listModels(): Promise<OpencodeModelsResult>;
+		};
 	}
+}
+
+/** Result of the opencode-models:list IPC call. */
+export interface OpencodeModelsResult {
+	ok: boolean;
+	models: Record<string, string[]>;
+	error?: string;
 }

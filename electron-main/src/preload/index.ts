@@ -1,4 +1,11 @@
 /**
+ * @deprecated Este preload NO es cargado por Electron.
+ * El preload activo es src/electron/preload.ts.
+ * Este archivo está pendiente de eliminación.
+ * Ver: ai_docs/models_api/fix_preload_models_bridge_spec.md
+ */
+
+/**
  * electron-main/src/preload/index.ts
  *
  * Preload script — FolderExplorer contextBridge
@@ -65,6 +72,7 @@
 
 import { contextBridge, ipcRenderer } from "electron";
 import { FOLDER_EXPLORER_CHANNELS } from "../ipc/folder-explorer.ts";
+import { MODELS_API_CHANNELS } from "../ipc/models-api.ts";
 import type {
   ListResponse,
   StatResponse,
@@ -72,6 +80,7 @@ import type {
   MkdirResponse,
   ListDrivesResponse,
 } from "../ipc/folder-explorer.ts";
+import type { ModelsApiResult } from "../ipc/models-api.ts";
 import type { FilterOptions } from "../fs/filter.ts";
 
 // ── Contrato del objeto expuesto ────────────────────────────────────────────
@@ -194,6 +203,13 @@ const folderExplorerBridge: FolderExplorerBridge = {
 
 contextBridge.exposeInMainWorld("folderExplorer", folderExplorerBridge);
 
+// ── Models API bridge ──────────────────────────────────────────────────────
+
+contextBridge.exposeInMainWorld("modelsApi", {
+  getModels: (): Promise<ModelsApiResult> =>
+    ipcRenderer.invoke(MODELS_API_CHANNELS.GET_MODELS) as Promise<ModelsApiResult>,
+});
+
 // Expose platform so the renderer can detect Windows without relying on
 // navigator.userAgent (which can be unreliable in Electron).
 contextBridge.exposeInMainWorld("platform", process.platform);
@@ -218,6 +234,14 @@ declare global {
      * @see FolderExplorerBridge para la firma completa.
      */
     folderExplorer: FolderExplorerBridge;
+
+    /**
+     * Models API bridge — exposes getModels() for the renderer.
+     * Returns the models.dev/api.json data with caching and fallback.
+     */
+    modelsApi: {
+      getModels(): Promise<ModelsApiResult>;
+    };
 
     /**
      * The current platform string (e.g. "win32", "linux", "darwin").

@@ -1,0 +1,202 @@
+/**
+ * src/ui/styles/model-search-panel.css
+ *
+ * Styles for the ModelSearchPanel component.
+ * Uses the project's CSS variables for consistency.
+ */
+
+/* ── Container ───────────────────────────────────────────────────────────── */
+
+.model-search-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ── Search input area ───────────────────────────────────────────────────── */
+
+.model-search-panel__search {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.model-search-panel__input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text);
+  font-size: 0.9rem;
+  padding: 8px 12px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.model-search-panel__input:focus {
+  border-color: var(--color-primary);
+}
+
+.model-search-panel__input::placeholder {
+  color: var(--color-text-muted);
+}
+
+/* ── Results area ────────────────────────────────────────────────────────── */
+
+.model-search-panel__results {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Loading state ───────────────────────────────────────────────────────── */
+
+.model-search-panel__loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex: 1;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.model-search-panel__spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: model-search-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes model-search-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Error state ─────────────────────────────────────────────────────────── */
+
+.model-search-panel__error {
+  margin: 20px 16px;
+  padding: 14px 16px;
+  background: var(--color-error-bg);
+  border: 1px solid var(--color-error);
+  border-radius: 6px;
+  color: var(--color-error);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.model-search-panel__error p {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.model-search-panel__error .btn {
+  align-self: flex-start;
+}
+
+/* ── Empty state ─────────────────────────────────────────────────────────── */
+
+.model-search-panel__empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  font-style: italic;
+  margin: 0;
+  padding: 40px 20px;
+  text-align: center;
+}
+
+/* ── Table ───────────────────────────────────────────────────────────────── */
+
+.model-search-panel__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.model-search-panel__table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-surface);
+}
+
+.model-search-panel__table th {
+  text-align: left;
+  padding: 8px 12px;
+  color: var(--color-text-muted);
+  font-weight: 600;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+/* ── Table rows ──────────────────────────────────────────────────────────── */
+
+.model-search-panel__row {
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.model-search-panel__row:hover {
+  background: var(--color-surface-2);
+}
+
+.model-search-panel__row:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+.model-search-panel__row td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text);
+  vertical-align: middle;
+}
+
+.model-search-panel__row td:first-child {
+  color: var(--color-primary);
+  font-weight: 500;
+}
+
+.model-search-panel__row td:nth-child(2) {
+  font-family: monospace;
+  font-size: 0.82rem;
+}
+
+/* Cost columns — monospace for alignment */
+.model-search-panel__row td:nth-child(3),
+.model-search-panel__row td:nth-child(4) {
+  font-family: monospace;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
+/* Reasoning column */
+.model-search-panel__row td:nth-child(5) {
+  text-align: center;
+  font-size: 1rem;
+}
+
+/* Context / Max output columns */
+.model-search-panel__row td:nth-child(6),
+.model-search-panel__row td:nth-child(7) {
+  font-family: monospace;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
