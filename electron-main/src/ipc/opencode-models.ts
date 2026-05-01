@@ -24,6 +24,7 @@
 import type { IpcMain } from "electron";
 import { spawn as _spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
+import { set } from "zod";
 
 // ── Channel names ─────────────────────────────────────────────────────────────
 
@@ -95,14 +96,16 @@ export async function runOpencodeModels(
   const platform = deps?.platform ?? process.platform;
 
   // ── Determine command ──────────────────────────────────────────────────────
-  const cmd = platform === "win32" ? "opencode.exe" : "opencode";
+  const cmd = platform === "win32" ? "opencode" : "opencode";
+  const options = platform === "win32" ? { shell: true } : {};
 
   return new Promise<OpencodeModelsResult>((resolve) => {
     let child: ChildProcess;
 
     try {
-      child = spawnProcess(cmd, ["models"]);
+      child = spawnProcess(cmd, ["models"], options);
     } catch (spawnErr) {
+      console.log(222222, spawnErr);
       // Synchronous spawn failure (e.g. ENOENT on some platforms)
       resolve({
         ok: false,
