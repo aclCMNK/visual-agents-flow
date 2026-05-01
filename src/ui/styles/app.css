@@ -6395,6 +6395,25 @@ button:disabled {
 	box-shadow: 0 0 0 1.5px rgba(99, 102, 241, 0.1);
 }
 
+/* ── Readonly display inputs (provider + model) ─────────────────────────── */
+.opencode-config-form__readonly-input {
+	width: 100%;
+	box-sizing: border-box;
+	cursor: default;
+	opacity: 0.7;
+	background: var(--color-surface-sunken, rgba(0, 0, 0, 0.18));
+	color: var(--color-text-muted, #8b9ab0);
+	border-color: var(--color-border, #292e44);
+	user-select: none;
+	pointer-events: none;
+}
+
+.opencode-config-form__readonly-input:focus {
+	border-color: var(--color-border, #292e44);
+	box-shadow: none;
+	outline: none;
+}
+
 /* ── Temperature number input ───────────────────────────────────────────── */
 .opencode-config-form__temperature-input {
 	width: 100%;

@@ -913,8 +913,6 @@ function OpenCodeConfigForm({ agentId }: OpenCodeConfigFormProps) {
   const [isLoaded, setIsLoaded] = useState(false);
   const [selectModelOpen, setSelectModelOpen] = useState(false);
 
-  // Debounce timer for model field auto-save
-  const modelSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Track last persisted provider+model to avoid redundant writes
   const lastPersistedRef = useRef<{ provider: string; model: string } | null>(null);
 
@@ -985,21 +983,6 @@ function OpenCodeConfigForm({ agentId }: OpenCodeConfigFormProps) {
     [agentId, project]
   );
 
-  // ── Provider change handler ──────────────────────────────────────────────
-  function handleProviderChange(value: string) {
-    setProvider(value);
-    persist(value, model);
-  }
-
-  // ── Model change handler (debounced auto-save) ───────────────────────────
-  function handleModelChange(value: string) {
-    setModel(value);
-    if (modelSaveTimerRef.current) clearTimeout(modelSaveTimerRef.current);
-    modelSaveTimerRef.current = setTimeout(() => {
-      persist(provider, value);
-    }, 500);
-  }
-
   if (!isLoaded) return null;
 
   return (
@@ -1038,30 +1021,27 @@ function OpenCodeConfigForm({ agentId }: OpenCodeConfigFormProps) {
         }}
       />
 
-      {/* ── Provider dropdown ───────────────────────────────────────── */}
+      {/* ── Provider readonly input ──────────────────────────────────── */}
       <div className="agent-adapter-form__field">
         <label
           className="agent-adapter-form__label"
-          htmlFor="opencode-provider-select"
+          htmlFor="opencode-provider-input"
         >
           Provider
         </label>
-        <select
-          id="opencode-provider-select"
-          className="form-field__select agent-adapter-form__select"
+        <input
+          id="opencode-provider-input"
+          type="text"
+          className="form-field__input opencode-config-form__readonly-input"
           value={provider}
-          onChange={(e) => handleProviderChange(e.target.value)}
+          readOnly
           aria-label="OpenCode provider"
-        >
-          {OPENCODE_PROVIDERS.map((p) => (
-            <option key={p} value={p}>
-              {p}
-            </option>
-          ))}
-        </select>
+          aria-readonly="true"
+          tabIndex={-1}
+        />
       </div>
 
-      {/* ── Model text input ─────────────────────────────────────────── */}
+      {/* ── Model readonly input ─────────────────────────────────────── */}
       <div className="agent-adapter-form__field">
         <label
           className="agent-adapter-form__label"
@@ -1072,20 +1052,14 @@ function OpenCodeConfigForm({ agentId }: OpenCodeConfigFormProps) {
         <input
           id="opencode-model-input"
           type="text"
-          className="form-field__input opencode-config-form__model-input"
+          className="form-field__input opencode-config-form__readonly-input"
           value={model}
-          onChange={(e) => handleModelChange(e.target.value)}
-          placeholder="e.g. gpt-4o, claude-sonnet-4-5..."
+          readOnly
+          placeholder="No model selected"
           aria-label="OpenCode model"
-          autoComplete="off"
-          spellCheck={false}
+          aria-readonly="true"
+          tabIndex={-1}
         />
-        {/* Non-blocking info when model is empty */}
-        {!model.trim() && (
-          <span className="opencode-config-form__model-info" role="status">
-            Please enter a model name.
-          </span>
-        )}
       </div>
     </div>
   );
