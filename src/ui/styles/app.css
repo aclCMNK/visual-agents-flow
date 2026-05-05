@@ -7971,10 +7971,13 @@ button:disabled {
 }
 
 .export-modal__skills-tree {
-	width: 200px;
+	width: 220px;
+	min-width: 160px;
+	max-width: 320px;
 	flex-shrink: 0;
 	border-right: 1px solid var(--color-border);
 	overflow-y: auto;
+	overflow-x: hidden;
 	scroll-behavior: smooth;
 	padding: 16px 12px;
 	display: flex;
@@ -8009,10 +8012,11 @@ button:disabled {
 	transition:
 		background 100ms ease,
 		color 100ms ease;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
+	white-space: normal;
+	overflow-wrap: break-word;
+	word-break: break-word;
 	width: 100%;
+	line-height: 1.35;
 }
 
 .export-modal__skill-item:hover {
