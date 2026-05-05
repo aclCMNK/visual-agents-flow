@@ -465,7 +465,7 @@ export function ExportModal({
           adataProperties: adataResult.adata,
           agentType: canvasAgent.type,
         };
-        const agentJson = buildAgentOpenCodeJson(snapshot, project.name, EXPORT_PATH_SEPARATOR);
+        const agentJson = buildAgentOpenCodeJson(snapshot, project.projectDir.split(/[\\/]/).pop() || project.name, EXPORT_PATH_SEPARATOR);
         setAgentAdataDisplay(JSON.stringify(agentJson, null, 2));
       } else if (canvasAgent) {
         // No adata found — build with empty adataProperties
@@ -478,7 +478,7 @@ export function ExportModal({
           adataProperties: {},
           agentType: canvasAgent.type,
         };
-        const agentJson = buildAgentOpenCodeJson(snapshot, project.name, EXPORT_PATH_SEPARATOR);
+        const agentJson = buildAgentOpenCodeJson(snapshot, project.projectDir.split(/[\\/]/).pop() || project.name, EXPORT_PATH_SEPARATOR);
         setAgentAdataDisplay(JSON.stringify(agentJson, null, 2));
       } else {
         setAgentAdataDisplay("(agent not found)");
@@ -653,7 +653,7 @@ export function ExportModal({
         },
       }));
 
-      const output = buildOpenCodeV2Config(enriched, config, project.name, undefined, EXPORT_PATH_SEPARATOR);
+      const output = buildOpenCodeV2Config(enriched, config, project.projectDir.split(/[\\/]/).pop() || project.name, undefined, EXPORT_PATH_SEPARATOR);
       const content = serializeOpenCodeV2Output(output, config.fileExtension);
 
       const writeResult = await bridge.writeExportFile({
