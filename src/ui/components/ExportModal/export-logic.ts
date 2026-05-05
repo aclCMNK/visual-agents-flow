@@ -592,8 +592,8 @@ export interface OpenCodeV2Output {
  * All fields are always present. Defaults are applied for missing optional
  * source values (temperature→0.05, step→7, color→#ffffff, permission→{}).
  *
- * agentName is verbatim from agent.name — NOT slugified.
- * prompt path uses "prompts" (plural) and verbatim project/agent names.
+ * Both projectName and agentName are slugified via toSlug() for the prompt path,
+ * matching the real filesystem directory/file names. prompt uses "prompts" (plural).
  * model is "<provider>/<model>" in lowercase.
  * mode is derived from agentType: "Agent"→"primary", "Sub-Agent"→"subagent".
  *
@@ -616,10 +616,11 @@ export function buildOpenCodeV2AgentEntry(
 
   // ── prompt — slugified names, "prompts" directory (plural) ──────────────
   // separator is platform-specific ('\\' on Windows, '/' elsewhere)
-  // projectName is slugified via toSlug() to match the real filesystem directory name;
-  // agentName is used as-is (already stored as slug)
-  const projSlug = toSlug(projectName) || "project";
-  const prompt = `{file:.${separator}prompts${separator}${projSlug}${separator}${agentName}.md}`;
+  // Both projectName and agentName are slugified via toSlug() to match the real
+  // filesystem directory/file names created by profile-export-handlers.ts.
+  const projSlug  = toSlug(projectName) || "project";
+  const agentSlug = toSlug(agentName)   || agentName;
+  const prompt = `{file:.${separator}prompts${separator}${projSlug}${separator}${agentSlug}.md}`;
 
   // ── opencode config from adataProperties ──────────────────────────────
   const ocConfig = agent.adataProperties?.opencode as Record<string, unknown> | undefined;

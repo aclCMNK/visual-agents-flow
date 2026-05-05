@@ -364,6 +364,95 @@ describe("slugify — complex real-world names", () => {
   });
 });
 
+// ── toSlug — edge cases from prompt-path-slug-consistency spec ────────────
+
+describe("toSlug — edge cases (prompt-path-slug-consistency spec)", () => {
+  // Hyphen and underscore preservation
+  it("preserves hyphen: my-project → my-project", () => {
+    expect(toSlug("my-project")).toBe("my-project");
+  });
+
+  it("preserves underscore: my_project → my_project", () => {
+    expect(toSlug("my_project")).toBe("my_project");
+  });
+
+  it("preserves mixed: my-project_v2 → my-project_v2", () => {
+    expect(toSlug("my-project_v2")).toBe("my-project_v2");
+  });
+
+  it("collapses consecutive hyphens: my--project → my-project", () => {
+    expect(toSlug("my--project")).toBe("my-project");
+  });
+
+  it("does NOT collapse consecutive underscores: my__project → my__project", () => {
+    expect(toSlug("my__project")).toBe("my__project");
+  });
+
+  it("strips leading/trailing underscore: _my_project_ → my_project", () => {
+    expect(toSlug("_my_project_")).toBe("my_project");
+  });
+
+  it("strips leading/trailing hyphen: -my-project- → my-project", () => {
+    expect(toSlug("-my-project-")).toBe("my-project");
+  });
+
+  it("preserves valid combination: my_-project → my_-project", () => {
+    expect(toSlug("my_-project")).toBe("my_-project");
+  });
+
+  it("lowercases: MY_PROJECT → my_project", () => {
+    expect(toSlug("MY_PROJECT")).toBe("my_project");
+  });
+
+  it("returns empty for all underscores: ___ → ''", () => {
+    expect(toSlug("___")).toBe("");
+  });
+
+  it("returns empty for all hyphens: --- → ''", () => {
+    expect(toSlug("---")).toBe("");
+  });
+
+  it("handles single char: a → a", () => {
+    expect(toSlug("a")).toBe("a");
+  });
+
+  // CHAR_MAP cases (require applyCharMap before NFD)
+  it("CHAR_MAP: straße → strasse", () => {
+    expect(toSlug("straße")).toBe("strasse");
+  });
+
+  it("CHAR_MAP: søren → soren", () => {
+    expect(toSlug("søren")).toBe("soren");
+  });
+
+  it("CHAR_MAP: œuvre → oeuvre", () => {
+    expect(toSlug("œuvre")).toBe("oeuvre");
+  });
+
+  it("CHAR_MAP: æsthetic → aesthetic", () => {
+    expect(toSlug("æsthetic")).toBe("aesthetic");
+  });
+
+  it("CHAR_MAP: straße-projekt → strasse-projekt", () => {
+    expect(toSlug("straße-projekt")).toBe("strasse-projekt");
+  });
+
+  it("CHAR_MAP: dot becomes hyphen: my.project → my-project", () => {
+    expect(toSlug("my.project")).toBe("my-project");
+  });
+
+  it("CHAR_MAP: space becomes hyphen: my project → my-project", () => {
+    expect(toSlug("my project")).toBe("my-project");
+  });
+
+  it("enforces max length of 64 chars without trailing hyphen", () => {
+    const input = "a".repeat(100);
+    const result = toSlug(input);
+    expect(result.length).toBeLessThanOrEqual(64);
+    expect(result.endsWith("-")).toBe(false);
+  });
+});
+
 // ── Roundtrip invariants ──────────────────────────────────────────────────
 
 describe("slugify — output is always a valid slug", () => {
