@@ -616,8 +616,10 @@ export function buildOpenCodeV2AgentEntry(
 
   // ── prompt — slugified names, "prompts" directory (plural) ──────────────
   // separator is platform-specific ('\\' on Windows, '/' elsewhere)
-  // projectName is lowercased; agentName is used as-is (already stored as slug)
-  const prompt = `{file:.${separator}prompts${separator}${projectName.toLowerCase()}${separator}${agentName}.md}`;
+  // projectName is slugified via toSlug() to match the real filesystem directory name;
+  // agentName is used as-is (already stored as slug)
+  const projSlug = toSlug(projectName) || "project";
+  const prompt = `{file:.${separator}prompts${separator}${projSlug}${separator}${agentName}.md}`;
 
   // ── opencode config from adataProperties ──────────────────────────────
   const ocConfig = agent.adataProperties?.opencode as Record<string, unknown> | undefined;
@@ -685,7 +687,7 @@ export function buildOpenCodeV2AgentEntry(
  *
  * @param agents         - All agent snapshots
  * @param config         - Export configuration
- * @param projectName    - Verbatim project name (folder is lowercased internally)
+ * @param projectName    - Verbatim project name (slugified via toSlug() for prompt paths and folder names)
  * @param mdFileExists   - Optional predicate: (projectName, agentName) => boolean.
  *                         Defaults to () => true. Pass a real filesystem check in
  *                         production; pass a stub in tests.
