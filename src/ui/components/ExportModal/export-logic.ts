@@ -102,6 +102,13 @@ export interface OpenCodeExportConfig {
   hideDefaultPlanner: boolean;
   /** Whether to hide the default builder agent in the exported config */
   hideDefaultBuilder: boolean;
+  /**
+   * When true AND fileExtension === "json", all exported files are placed inside
+   * a `.opencode/` subdirectory of the chosen export directory.
+   * Example: exportDir/.opencode/opencode.json, exportDir/.opencode/skills/, etc.
+   * Only relevant when fileExtension === "json"; ignored for "jsonc".
+   */
+  createOpencodeDir: boolean;
 }
 
 /** Default schema URL for OpenCode config files */
@@ -118,6 +125,7 @@ export function makeDefaultOpenCodeConfig(): OpenCodeExportConfig {
     plugins: [],
     hideDefaultPlanner: false,
     hideDefaultBuilder: false,
+    createOpencodeDir: true,
   };
 }
 

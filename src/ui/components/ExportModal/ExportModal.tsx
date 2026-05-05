@@ -248,6 +248,7 @@ export function ExportModal({
       autoUpdate:          typeof props.autoupdate         === "boolean" ? props.autoupdate         : defaults.autoUpdate,
       hideDefaultPlanner:  typeof props.hideDefaultPlanner === "boolean" ? props.hideDefaultPlanner : defaults.hideDefaultPlanner,
       hideDefaultBuilder:  typeof props.hideDefaultBuilder === "boolean" ? props.hideDefaultBuilder : defaults.hideDefaultBuilder,
+      createOpencodeDir:   typeof props.createOpencodeDir  === "boolean" ? props.createOpencodeDir  : defaults.createOpencodeDir,
     };
   });
   const [isExporting, setIsExporting] = useState(false);
@@ -579,6 +580,7 @@ export function ExportModal({
       autoupdate:          next.autoUpdate,
       hideDefaultPlanner:  next.hideDefaultPlanner,
       hideDefaultBuilder:  next.hideDefaultBuilder,
+      createOpencodeDir:   next.createOpencodeDir,
     };
     saveProject({ properties: updatedProperties }).catch((err: unknown) => {
       console.warn("[ExportModal] No se pudo guardar la configuración general en project.properties:", err);
@@ -589,6 +591,14 @@ export function ExportModal({
     if (!project || !bridge || !canExport) return;
     setIsExporting(true);
     setExportResult(null);
+
+    // ── Compute effective destination directory ─────────────────────────
+    // When createOpencodeDir is ON and fileExtension is "json", all exported
+    // files go into a `.opencode/` subdirectory of the chosen exportDir.
+    const effectiveDestDir =
+      config.createOpencodeDir && config.fileExtension === "json"
+        ? `${exportDir}/.opencode`
+        : exportDir;
 
     try {
       // Build agent snapshots (without full profile content — use placeholder)
@@ -636,7 +646,7 @@ export function ExportModal({
       const content = serializeOpenCodeV2Output(output, config.fileExtension);
 
       const writeResult = await bridge.writeExportFile({
-        destDir: exportDir,
+        destDir: effectiveDestDir,
         fileName: outputFileName,
         content,
       });
@@ -658,7 +668,7 @@ export function ExportModal({
       try {
         const skillsResult = await bridge.exportSkills({
           projectDir: project.projectDir,
-          destDir: exportDir,
+          destDir: effectiveDestDir,
         });
 
         if (skillsResult.aborted) {
@@ -692,7 +702,7 @@ export function ExportModal({
       try {
         const profilesResult = await bridge.exportAgentProfiles({
           projectDir: project.projectDir,
-          destDir: exportDir,
+          destDir: effectiveDestDir,
         });
 
         if (profilesResult.error && !profilesResult.exported.length) {
@@ -1112,6 +1122,30 @@ export function ExportModal({
                   Output: <code>{outputFileName}</code>
                 </span>
               </div>
+
+              {/* ── Create .opencode dir toggle (only visible when ext === "json") ── */}
+              {config.fileExtension === "json" && (
+                <div className="export-modal__field-row">
+                  <label className="export-modal__label">
+                    Create .opencode dir
+                  </label>
+                  <div className="export-modal__switch-row">
+                    <button
+                      role="switch"
+                      aria-checked={config.createOpencodeDir}
+                      className={`export-modal__switch${config.createOpencodeDir ? " export-modal__switch--on" : ""}`}
+                      onClick={() => setConfig((c) => {
+                        const next = { ...c, createOpencodeDir: !c.createOpencodeDir };
+                        saveGeneralProperties(next);
+                        return next;
+                      })}
+                      title="When ON, all exported files are placed inside a .opencode/ subdirectory"
+                    >
+                      {config.createOpencodeDir ? "ON" : "OFF"}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div className="export-modal__field-row">
                 <label className="export-modal__label">
