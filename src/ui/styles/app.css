@@ -7926,6 +7926,44 @@ button:disabled {
 	border-color: var(--color-primary, #6366f1);
 }
 
+/* ── JsonViewer — read-only syntax-highlighted JSON display ────────────────
+ *
+ * Wraps react-json-pretty output in the ExportModal Agent subsection.
+ * Uses Monokai-inspired dark background for good contrast on dark themes.
+ * Scrollable vertically, respects parent panel width (no horizontal overflow).
+ *
+ * Package: react-json-pretty@2.2.0
+ * Modified: ExportModal.tsx (Agent tab — replaced textarea with JsonViewer)
+ * Component: src/ui/components/ExportModal/JsonViewer.tsx
+ */
+
+.json-viewer {
+  width: 100%;
+  box-sizing: border-box;
+  background: #272822;          /* Monokai dark background */
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  overflow-y: auto;             /* vertical scroll for large JSON */
+  overflow-x: hidden;           /* no horizontal expansion */
+  min-height: 80px;
+  max-height: 100%;             /* fills available panel height */
+  flex: 1 1 0;                  /* grows inside flex agents-panel */
+}
+
+/* react-json-pretty root element — reset its own overflow/background */
+.json-viewer .__json-pretty__ {
+  background: transparent !important;
+  overflow: visible !important;
+  margin: 0;
+  padding: 0;
+}
+
+/* Modifier for the agent JSON panel specifically */
+.export-modal__json-viewer--agent {
+  /* inherits .json-viewer — no extra overrides needed */
+}
+
 /* ── MarkdownViewer — read-only formatted Markdown display ─────────────────
  *
  * Replaces <textarea readOnly> for profile and skill content in ExportModal.

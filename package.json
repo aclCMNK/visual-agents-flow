@@ -69,6 +69,7 @@
 		"marked": "^18.0.0",
 		"react": "^19.2.4",
 		"react-dom": "^19.2.4",
+		"react-json-pretty": "^2.2.0",
 		"zod": "^4.3.6",
 		"zustand": "^5.0.12"
 	}

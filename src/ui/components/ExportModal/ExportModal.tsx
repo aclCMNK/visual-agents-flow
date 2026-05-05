@@ -155,6 +155,7 @@ import type { IpcError } from "../../../renderer/services/ipc.ts";
 import { SkillConflictDialog } from "./SkillConflictDialog.tsx";
 import { ProfileConflictDialog } from "./ProfileConflictDialog.tsx";
 import { MarkdownViewer } from "./MarkdownViewer.tsx";
+import { JsonViewer } from "./JsonViewer.tsx";
 import type {
   ExportSkillsConflictPrompt,
   ExportSkillsConflictAction,
@@ -1181,16 +1182,18 @@ export function ExportModal({
                   <div className="export-modal__loading">Loading agent data…</div>
                 ) : (
                   <div className="export-modal__agents-panels">
-                    <div className="export-modal__agents-panel">
-                      <div className="export-modal__panel-label">OpenCode config (JSON)</div>
-                      <textarea
-                        className="export-modal__textarea export-modal__textarea--readonly"
-                        readOnly
-                        value={agentAdataDisplay}
-                        rows={10}
-                        aria-label="Agent OpenCode config JSON"
-                      />
-                    </div>
+                     <div className="export-modal__agents-panel">
+                       <div className="export-modal__panel-label">OpenCode config (JSON)</div>
+                       {/* [CHANGED] Replaced read-only textarea with JsonViewer.
+                           Uses react-json-pretty for syntax-highlighted, formatted JSON.
+                           Read-only, no expand/collapse, no editing.
+                           Scroll is handled by .json-viewer CSS class. */}
+                       <JsonViewer
+                         json={agentAdataDisplay}
+                         aria-label="Agent OpenCode config JSON"
+                         className="export-modal__json-viewer--agent"
+                       />
+                     </div>
                     <div className="export-modal__agents-panel">
                       <div className="export-modal__panel-label">Profile content (.md — concatenated by order)</div>
                       <MarkdownViewer
