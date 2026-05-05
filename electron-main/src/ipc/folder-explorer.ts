@@ -488,7 +488,8 @@ async function handleStat(
   // For stat we need to handle the "non-existent path" case ourselves,
   // because resolveWithinHome calls realpath() which rejects non-existent paths.
   //
-  // Strategy:
+  // On Windows: use resolveForWindows — any drive path is valid, no HOME jail.
+  // On Linux/macOS:
   //   a) Try resolveWithinHome — succeeds if the path exists AND is inside HOME.
   //   b) If it throws with homeJail: prefix → E_NOT_IN_HOME (hard error).
   //   c) If it throws with ENOENT → perform a lexical containment check using
@@ -501,58 +502,68 @@ async function handleStat(
 
   let safePath: string | null = null;
 
-  try {
-    safePath = await resolveWithinHome(rawPath);
-  } catch (err) {
-    if (err instanceof Error) {
-      // homeJail jail-violation errors always start with "homeJail:"
-      if (err.message.startsWith("homeJail:")) {
-        // Check whether this is a "cannot resolve" (ENOENT) or a true jail violation.
-        // homeJail wraps ENOENT as: `homeJail: cannot resolve path "..." ...`
-        const isCannotResolve = err.message.includes("cannot resolve path");
-        if (isCannotResolve) {
-          // The path MIGHT be inside HOME but just doesn't exist.
-          // Do a lexical (no-realpath) check to distinguish:
-          //   ~/non-existent      → inside HOME lexically → ok:true, exists:false
-          //   ../../non-existent  → outside HOME lexically → E_NOT_IN_HOME
-          const { resolve: pathResolve, normalize: pathNorm, sep: pathSep } = await import("node:path");
-          const lexical = pathNorm(pathResolve(rawPath));
-          const insideHome =
-            lexical === HOME_ROOT ||
-            lexical.startsWith(HOME_ROOT + pathSep);
-
-          if (insideHome) {
-            return {
-              ok: true,
-              stat: {
-                path:        lexical,
-                exists:      false,
-                isDirectory: false,
-                readable:    false,
-              },
-            };
-          } else {
-            return {
-              ok: false,
-              code: "E_NOT_IN_HOME",
-              message: `Path "${rawPath}" is outside the home directory.`,
-            };
-          }
-        }
-
-        // True jail violation (symlink escape, traversal to existing outside path)
-        return {
-          ok: false,
-          code: "E_NOT_IN_HOME",
-          message: `Path is outside the home directory. (${err.message})`,
-        };
-      }
-
-      // Any other error from resolveWithinHome → classify normally
+  if (IS_WINDOWS) {
+    // On Windows: resolve freely across any drive — no HOME jail for stat.
+    try {
+      safePath = await resolveForWindows(rawPath);
+    } catch (err) {
       return classifyError(err);
     }
+  } else {
+    // Linux / macOS: enforce HOME jail with lexical fallback for non-existent paths.
+    try {
+      safePath = await resolveWithinHome(rawPath);
+    } catch (err) {
+      if (err instanceof Error) {
+        // homeJail jail-violation errors always start with "homeJail:"
+        if (err.message.startsWith("homeJail:")) {
+          // Check whether this is a "cannot resolve" (ENOENT) or a true jail violation.
+          // homeJail wraps ENOENT as: `homeJail: cannot resolve path "..." ...`
+          const isCannotResolve = err.message.includes("cannot resolve path");
+          if (isCannotResolve) {
+            // The path MIGHT be inside HOME but just doesn't exist.
+            // Do a lexical (no-realpath) check to distinguish:
+            //   ~/non-existent      → inside HOME lexically → ok:true, exists:false
+            //   ../../non-existent  → outside HOME lexically → E_NOT_IN_HOME
+            const { resolve: pathResolve, normalize: pathNorm, sep: pathSep } = await import("node:path");
+            const lexical = pathNorm(pathResolve(rawPath));
+            const insideHome =
+              lexical === HOME_ROOT ||
+              lexical.startsWith(HOME_ROOT + pathSep);
 
-    return classifyError(err);
+            if (insideHome) {
+              return {
+                ok: true,
+                stat: {
+                  path:        lexical,
+                  exists:      false,
+                  isDirectory: false,
+                  readable:    false,
+                },
+              };
+            } else {
+              return {
+                ok: false,
+                code: "E_NOT_IN_HOME",
+                message: `Path "${rawPath}" is outside the home directory.`,
+              };
+            }
+          }
+
+          // True jail violation (symlink escape, traversal to existing outside path)
+          return {
+            ok: false,
+            code: "E_NOT_IN_HOME",
+            message: `Path is outside the home directory. (${err.message})`,
+          };
+        }
+
+        // Any other error from resolveWithinHome → classify normally
+        return classifyError(err);
+      }
+
+      return classifyError(err);
+    }
   }
 
   // ── Stat the resolved path ─────────────────────────────────────────────
@@ -709,7 +720,9 @@ async function handleMkdir(
 
   let safeParent: string;
   try {
-    safeParent = await resolveWithinHome(parentPath);
+    safeParent = IS_WINDOWS
+      ? await resolveForWindows(parentPath)
+      : await resolveWithinHome(parentPath);
   } catch (err) {
     return classifyError(err);
   }

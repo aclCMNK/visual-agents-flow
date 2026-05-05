@@ -97,10 +97,16 @@ import {
 import type { Drive } from "../../../electron-main/src/ipc/folder-explorer.ts";
 
 // ── Platform detection ────────────────────────────────────────────────────────
-// Use window.platform exposed by the preload script (more reliable than userAgent).
+// Read from window.appPaths.platform exposed by the preload script.
+// This is the ONLY reliable way to detect the platform in the renderer because:
+//   - nodeIntegration is false → cannot import Node's `os` module
+//   - window.platform is NOT exposed by the preload (would be undefined)
+//   - userAgent-based detection is unreliable on Electron
+// The preload exposes: window.appPaths.platform = process.platform
 const IS_WINDOWS: boolean =
-  typeof window !== "undefined" && "platform" in window
-    ? (window as Window & { platform: string }).platform === "win32"
+  typeof window !== "undefined" &&
+  typeof (window as Window & { appPaths?: { platform?: string } }).appPaths?.platform === "string"
+    ? (window as Window & { appPaths: { platform: string } }).appPaths.platform === "win32"
     : false;
 
 // ── Windows path helpers ──────────────────────────────────────────────────────
@@ -536,7 +542,11 @@ export function useFolderExplorer(
     setLoading(true);
     setError(null);
 
-    const result = await window.folderExplorer.listDrives();
+  const result = await (window as Window & {
+      folderExplorer: {
+        listDrives(): Promise<{ ok: true; drives: Drive[] } | { ok: false; code: string; message: string }>;
+      };
+    }).folderExplorer.listDrives();
 
     if (!result.ok) {
       setError({ code: result.code, message: result.message });

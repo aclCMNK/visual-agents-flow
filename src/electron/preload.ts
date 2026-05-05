@@ -674,6 +674,15 @@ contextBridge.exposeInMainWorld("folderExplorer", {
 	mkdir(parentPath: string, name: string) {
 		return ipcRenderer.invoke("folder-explorer:mkdir", { parentPath, name });
 	},
+
+	/**
+	 * Lists all available Windows drive units (A:\ to Z:\).
+	 * On Linux/macOS the main process returns E_UNKNOWN — callers should
+	 * guard with IS_WINDOWS before calling this method.
+	 */
+	listDrives() {
+		return ipcRenderer.invoke(FOLDER_EXPLORER_CHANNELS.LIST_DRIVES);
+	},
 });
 
 console.log(
@@ -714,9 +723,21 @@ contextBridge.exposeInMainWorld("appPaths", {
 	 * hardcoding "/home/<username>/" — which breaks on every other platform/user.
 	 */
 	home: os.homedir(),
+
+	/**
+	 * The current OS platform, as returned by Node's process.platform.
+	 * Possible values: "win32" | "linux" | "darwin" | (other Node platforms).
+	 *
+	 * Use this in the renderer to detect Windows without importing Node's `os`
+	 * module (which is unavailable in the renderer due to nodeIntegration:false).
+	 *
+	 * Example:
+	 *   const IS_WINDOWS = window.appPaths.platform === "win32";
+	 */
+	platform: process.platform as "win32" | "linux" | "darwin",
 });
 
-console.log(`[preload] window.appPaths exposed — home: ${os.homedir()}`);
+console.log(`[preload] window.appPaths exposed — home: ${os.homedir()}, platform: ${process.platform}`);
 
 // ── window.modelsApi — Models.dev API bridge ──────────────────────────────
 //
