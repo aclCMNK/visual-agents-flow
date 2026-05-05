@@ -105,41 +105,41 @@ describe("buildOpenCodeV2AgentEntry — prompt path", () => {
     expect(result["my-agent"]!.prompt).toBe("{file:./prompts/my-project/my-agent.md}");
   });
 
-  it("project name is lowercased but agentName is verbatim", () => {
-    // agentName stays verbatim; only the project folder segment is lowercased
+  it("project name and agent name are both slugified", () => {
+    // agentName is slugified via toSlug(); project folder is also slugified
     const agent = makeAgent({ name: "My Agent" });
     const result = buildOpenCodeV2AgentEntry(agent, "My Project");
-    expect(result["My Agent"]!.prompt).toBe("{file:./prompts/my project/My Agent.md}");
+    expect(result["my-agent"]!.prompt).toBe("{file:./prompts/my-project/my-agent.md}");
   });
 
-  it("project name is lowercased — spaces and accents preserved except case", () => {
+  it("project name is slugified — spaces become hyphens", () => {
     const result = buildOpenCodeV2AgentEntry(makeAgent({ name: "worker" }), "Drass MemorIA");
-    expect(result["worker"]!.prompt).toBe("{file:./prompts/drass memoria/worker.md}");
+    expect(result["worker"]!.prompt).toBe("{file:./prompts/drass-memoria/worker.md}");
   });
 
-  it("agentName is the top-level key (verbatim)", () => {
+  it("agentName is the top-level key (slugified)", () => {
     const result = buildOpenCodeV2AgentEntry(makeAgent({ name: "Research-Agent" }), "proj");
-    expect(Object.keys(result)).toEqual(["Research-Agent"]);
+    expect(Object.keys(result)).toEqual(["research-agent"]);
   });
 
-  it("DevTeam_1 project → folder lowercased, agent file verbatim", () => {
+  it("DevTeam_1 project → underscore preserved, agent name slugified", () => {
     const result = buildOpenCodeV2AgentEntry(makeAgent({ name: "El Jefe" }), "DevTeam_1");
-    expect(result["El Jefe"]!.prompt).toBe("{file:./prompts/devteam_1/El Jefe.md}");
+    expect(result["el-jefe"]!.prompt).toBe("{file:./prompts/devteam_1/el-jefe.md}");
   });
 
-  it("project with hyphens → only lowercased", () => {
+  it("project with hyphens → hyphens preserved in slug", () => {
     const result = buildOpenCodeV2AgentEntry(makeAgent({ name: "Sub-Worker" }), "My-Project-X");
-    expect(result["Sub-Worker"]!.prompt).toBe("{file:./prompts/my-project-x/Sub-Worker.md}");
+    expect(result["sub-worker"]!.prompt).toBe("{file:./prompts/my-project-x/sub-worker.md}");
   });
 
-  it("project with accented chars → only lowercased", () => {
+  it("project with accented chars → stripped via toSlug", () => {
     const result = buildOpenCodeV2AgentEntry(makeAgent({ name: "Coordinador" }), "ÉquipoÁgil");
-    expect(result["Coordinador"]!.prompt).toBe("{file:./prompts/équipoágil/Coordinador.md}");
+    expect(result["coordinador"]!.prompt).toBe("{file:./prompts/equipoagil/coordinador.md}");
   });
 
-  it("agent name with accents stays verbatim", () => {
+  it("agent name with accents is slugified", () => {
     const result = buildOpenCodeV2AgentEntry(makeAgent({ name: "Agénte Líder" }), "DevTeam_1");
-    expect(result["Agénte Líder"]!.prompt).toBe("{file:./prompts/devteam_1/Agénte Líder.md}");
+    expect(result["agente-lider"]!.prompt).toBe("{file:./prompts/devteam_1/agente-lider.md}");
   });
 });
 
@@ -350,14 +350,14 @@ describe("buildOpenCodeV2Config — top-level structure", () => {
     expect(out.default_agent).toBe("");
   });
 
-  it("default_agent is verbatim agent name when defaultAgentId matches", () => {
+  it("default_agent is slug of agent name when defaultAgentId matches", () => {
     const agent = makeAgent({ id: "abc-uuid", name: "My Orchestrator" });
     const out   = buildOpenCodeV2Config(
       [agent],
       makeConfig({ defaultAgentId: "abc-uuid" }),
       "proj",
     );
-    expect(out.default_agent).toBe("My Orchestrator");
+    expect(out.default_agent).toBe("my-orchestrator");
   });
 
   it("autoupdate is true when autoUpdate is true", () => {
@@ -877,16 +877,16 @@ describe("buildOpenCodeV2Config — hideDefaultPlanner + hideDefaultBuilder comb
 describe("buildOpenCodeV2Config — edge cases", () => {
   const mdExist = () => true;
 
-  it("agent name with accents is verbatim key", () => {
+  it("agent name with accents is slugified key", () => {
     const agent = makeAgent({ name: "Agénte Líder", adataProperties: { opencode: { provider: "a", model: "b" } } });
     const out   = buildOpenCodeV2Config([agent], makeConfig(), "proj", mdExist);
-    expect(Object.keys(out.agent)).toContain("Agénte Líder");
+    expect(Object.keys(out.agent)).toContain("agente-lider");
   });
 
-  it("agent name with uppercase stays verbatim", () => {
+  it("agent name with uppercase is lowercased in key", () => {
     const agent = makeAgent({ name: "MyAgent", adataProperties: { opencode: { provider: "a", model: "b" } } });
     const out   = buildOpenCodeV2Config([agent], makeConfig(), "proj", mdExist);
-    expect(Object.keys(out.agent)).toContain("MyAgent");
+    expect(Object.keys(out.agent)).toContain("myagent");
   });
 
   it("project name with accents is passed verbatim to mdFileExists", () => {
@@ -899,11 +899,11 @@ describe("buildOpenCodeV2Config — edge cases", () => {
     expect(calls[0]).toBe("ÉquipoÁgil");
   });
 
-  it("agent name with special chars (spaces, dashes, underscores) is verbatim", () => {
+  it("agent name with special chars (spaces, dashes, underscores) is slugified", () => {
     const name = "El Jefe-1_X";
     const agent = makeAgent({ name, adataProperties: { opencode: { provider: "a", model: "b" } } });
     const out   = buildOpenCodeV2Config([agent], makeConfig(), "proj", mdExist);
-    expect(Object.keys(out.agent)).toContain(name);
+    expect(Object.keys(out.agent)).toContain("el-jefe-1_x");
   });
 
   it("mdFileExists default (no 4th arg) includes all agents with model", () => {
@@ -920,4 +920,139 @@ describe("buildOpenCodeV2Config — edge cases", () => {
     expect(result["my-agent"]!.hidden).toBe(false);
   });
 });
+
+// ── Suite 3: buildOpenCodeV2AgentEntry — clave del objeto (spec: prompt-json-slug-sync.md) ──
+
+describe("buildOpenCodeV2AgentEntry — agent key is always toSlug(agentName) [Suite 3]", () => {
+  it("Björn Ström → bjorn-strom", () => {
+    const result = buildOpenCodeV2AgentEntry(makeAgent({ name: "Björn Ström" }), "MyProject");
+    expect(Object.keys(result)[0]).toBe("bjorn-strom");
+    expect(result["bjorn-strom"]!.prompt).toBe("{file:./prompts/myproject/bjorn-strom.md}");
+  });
+
+  it("Straße → strasse (CHAR_MAP)", () => {
+    const result = buildOpenCodeV2AgentEntry(makeAgent({ name: "Straße" }), "MyProject");
+    expect(Object.keys(result)[0]).toBe("strasse");
+    expect(result["strasse"]!.prompt).toBe("{file:./prompts/myproject/strasse.md}");
+  });
+
+  it("Søren → soren (CHAR_MAP)", () => {
+    const result = buildOpenCodeV2AgentEntry(makeAgent({ name: "Søren" }), "MyProject");
+    expect(Object.keys(result)[0]).toBe("soren");
+  });
+
+  it("Þórr → thorr (CHAR_MAP)", () => {
+    const result = buildOpenCodeV2AgentEntry(makeAgent({ name: "Þórr" }), "MyProject");
+    expect(Object.keys(result)[0]).toBe("thorr");
+  });
+
+  it("€uro Agent → euro-agent (CHAR_MAP)", () => {
+    const result = buildOpenCodeV2AgentEntry(makeAgent({ name: "€uro Agent" }), "MyProject");
+    expect(Object.keys(result)[0]).toBe("euro-agent");
+  });
+
+  it("Agent.Bot → agent-bot (dot → hyphen)", () => {
+    const result = buildOpenCodeV2AgentEntry(makeAgent({ name: "Agent.Bot" }), "MyProject");
+    expect(Object.keys(result)[0]).toBe("agent-bot");
+  });
+
+  it("my_agent → my_agent (underscore preserved)", () => {
+    const result = buildOpenCodeV2AgentEntry(makeAgent({ name: "my_agent" }), "MyProject");
+    expect(Object.keys(result)[0]).toBe("my_agent");
+    expect(result["my_agent"]!.prompt).toBe("{file:./prompts/myproject/my_agent.md}");
+  });
+
+  it("my-agent → my-agent (hyphen preserved)", () => {
+    const result = buildOpenCodeV2AgentEntry(makeAgent({ name: "my-agent" }), "MyProject");
+    expect(Object.keys(result)[0]).toBe("my-agent");
+  });
+
+  it("Mi Agente Principal → mi-agente-principal", () => {
+    const result = buildOpenCodeV2AgentEntry(makeAgent({ name: "Mi Agente Principal" }), "MyProject");
+    expect(Object.keys(result)[0]).toBe("mi-agente-principal");
+  });
+
+  it("Ñoño → nono (NFD strip)", () => {
+    const result = buildOpenCodeV2AgentEntry(makeAgent({ name: "Ñoño" }), "MyProject");
+    expect(Object.keys(result)[0]).toBe("nono");
+  });
+
+  it("long name → key length ≤ 64", () => {
+    const longName = "A".repeat(70);
+    const result = buildOpenCodeV2AgentEntry(makeAgent({ name: longName }), "MyProject");
+    expect(Object.keys(result)[0].length).toBeLessThanOrEqual(64);
+  });
+
+  it("completely invalid name '!!!' → fallback to agentName verbatim", () => {
+    const result = buildOpenCodeV2AgentEntry(makeAgent({ name: "!!!" }), "MyProject");
+    expect(Object.keys(result)[0]).toBe("!!!");
+  });
+});
+
+// ── Suite 4: proyecto con guión — bug '-' → '_' (spec: prompt-json-slug-sync.md) ──
+
+describe("buildOpenCodeV2AgentEntry — project with hyphen in prompt path [Suite 4]", () => {
+  it("my-project → prompt uses my-project (not my_project)", () => {
+    const result = buildOpenCodeV2AgentEntry(makeAgent({ name: "my-agent" }), "my-project");
+    expect(result["my-agent"]!.prompt).toBe("{file:./prompts/my-project/my-agent.md}");
+  });
+
+  it("Drass MemorIA → prompt uses drass-memoria", () => {
+    const result = buildOpenCodeV2AgentEntry(makeAgent({ name: "worker" }), "Drass MemorIA");
+    expect(result["worker"]!.prompt).toBe("{file:./prompts/drass-memoria/worker.md}");
+  });
+
+  it("DevTeam_1 → prompt uses devteam_1 (underscore preserved)", () => {
+    const result = buildOpenCodeV2AgentEntry(makeAgent({ name: "worker" }), "DevTeam_1");
+    expect(result["worker"]!.prompt).toBe("{file:./prompts/devteam_1/worker.md}");
+  });
+});
+
+// ── Suite 5: buildOpenCodeV2Config — default_agent (spec: prompt-json-slug-sync.md) ──
+
+describe("buildOpenCodeV2Config — default_agent is slug [Suite 5]", () => {
+  const mdExist = () => true;
+
+  it("Björn Ström → default_agent is bjorn-strom", () => {
+    const agent = makeAgent({ id: "1", name: "Björn Ström", adataProperties: { opencode: { provider: "a", model: "b" } } });
+    const config = buildOpenCodeV2Config([agent], makeConfig({ defaultAgentId: "1" }), "MyProject", mdExist);
+    expect(config.default_agent).toBe("bjorn-strom");
+    expect("bjorn-strom" in config.agent).toBe(true);
+  });
+
+  it("Straße → default_agent is strasse", () => {
+    const agent = makeAgent({ id: "2", name: "Straße", adataProperties: { opencode: { provider: "a", model: "b" } } });
+    const config = buildOpenCodeV2Config([agent], makeConfig({ defaultAgentId: "2" }), "MyProject", mdExist);
+    expect(config.default_agent).toBe("strasse");
+    expect("strasse" in config.agent).toBe(true);
+  });
+
+  it("no defaultAgentId → default_agent is empty string", () => {
+    const agent = makeAgent({ id: "1", name: "Agent", adataProperties: { opencode: { provider: "a", model: "b" } } });
+    const config = buildOpenCodeV2Config([agent], makeConfig({ defaultAgentId: undefined }), "MyProject", mdExist);
+    expect(config.default_agent).toBe("");
+  });
+});
+
+// ── Suite 6: consistencia clave ↔ prompt ↔ filesystem (spec: prompt-json-slug-sync.md) ──
+
+describe("buildOpenCodeV2AgentEntry — key matches prompt segment [Suite 6]", () => {
+  function assertKeyPromptConsistency(agentName: string, projectName: string) {
+    const result = buildOpenCodeV2AgentEntry(makeAgent({ name: agentName }), projectName);
+    const key = Object.keys(result)[0];
+    const prompt = result[key]!.prompt;
+    expect(prompt.endsWith(`${key}.md}`)).toBe(true);
+  }
+
+  it("Björn Ström / MyProject", () => assertKeyPromptConsistency("Björn Ström", "MyProject"));
+  it("Straße / MyProject", () => assertKeyPromptConsistency("Straße", "MyProject"));
+  it("my_agent / MyProject", () => assertKeyPromptConsistency("my_agent", "MyProject"));
+  it("Ñoño / MyProject", () => assertKeyPromptConsistency("Ñoño", "MyProject"));
+  it("€uro Agent / MyProject", () => assertKeyPromptConsistency("€uro Agent", "MyProject"));
+  it("Þórr / MyProject", () => assertKeyPromptConsistency("Þórr", "MyProject"));
+  it("Mi Agente / MyProject", () => assertKeyPromptConsistency("Mi Agente", "MyProject"));
+  it("my-agent / my-project", () => assertKeyPromptConsistency("my-agent", "my-project"));
+  it("worker / Drass MemorIA", () => assertKeyPromptConsistency("worker", "Drass MemorIA"));
+});
+
 

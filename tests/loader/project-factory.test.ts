@@ -54,35 +54,104 @@ afterEach(async () => {
 // ── slugify ───────────────────────────────────────────────────────────────
 
 describe("slugify()", () => {
-  it("lowercases and replaces spaces with underscores", () => {
-    expect(slugify("My Cool Project")).toBe("my_cool_project");
+  // ── Suite 1: preservación de guiones (spec: prompt-json-slug-sync.md) ──
+
+  it("preserves hyphens — BUG FIX: was converting '-' to '_'", () => {
+    expect(slugify("my-project")).toBe("my-project");
   });
 
-  it("removes leading and trailing underscores", () => {
-    expect(slugify("  ---Test---  ")).toBe("test");
+  it("preserves underscores", () => {
+    expect(slugify("my_project")).toBe("my_project");
   });
 
-  it("collapses multiple special chars into one underscore", () => {
-    expect(slugify("Agent//Flow!!Editor")).toBe("agent_flow_editor");
+  it("converts spaces to hyphens (not underscores)", () => {
+    expect(slugify("My Project")).toBe("my-project");
   });
 
-  it("handles all non-alphanumeric input", () => {
+  it("preserves mixed hyphen and underscore", () => {
+    expect(slugify("my-project_v2")).toBe("my-project_v2");
+  });
+
+  it("converts dot to hyphen", () => {
+    expect(slugify("my.project")).toBe("my-project");
+  });
+
+  it("strips accents", () => {
+    expect(slugify("ÉquipoÁgil")).toBe("equipoagil");
+  });
+
+  it("CHAR_MAP: ß → strasse", () => {
+    expect(slugify("Straße")).toBe("strasse");
+  });
+
+  it("CHAR_MAP: ø → o (Søren → soren)", () => {
+    expect(slugify("Søren")).toBe("soren");
+  });
+
+  it("collapses multiple spaces to single hyphen", () => {
+    expect(slugify("Drass  MemorIA")).toBe("drass-memoria");
+  });
+
+  it("truncates to 80 chars", () => {
+    const long = "a".repeat(90);
+    expect(slugify(long).length).toBeLessThanOrEqual(80);
+  });
+
+  it("handles all non-alphanumeric input → fallback 'project'", () => {
     expect(slugify("!!!###$$$")).toBe("project");
+  });
+
+  it("handles empty string → fallback 'project'", () => {
+    expect(slugify("")).toBe("project");
+  });
+
+  it("strips leading and trailing hyphens", () => {
+    expect(slugify("-my-project-")).toBe("my-project");
+  });
+
+  it("collapses consecutive hyphens", () => {
+    expect(slugify("my--project")).toBe("my-project");
   });
 
   it("handles single letter", () => {
     expect(slugify("A")).toBe("a");
   });
 
-  it("truncates to 80 chars", () => {
-    const long = "a".repeat(200);
-    expect(slugify(long).length).toBeLessThanOrEqual(80);
+  it("lowercases and replaces spaces with hyphens", () => {
+    expect(slugify("My Cool Project")).toBe("my-cool-project");
   });
 
-  it("handles unicode by removing non-ascii", () => {
-    // Unicode chars that aren't [a-z0-9] become underscores or removed
+  it("collapses multiple special chars into one hyphen", () => {
+    expect(slugify("Agent//Flow!!Editor")).toBe("agent-flow-editor");
+  });
+
+  it("handles unicode by stripping non-ascii (via NFD)", () => {
     const result = slugify("Ñoño Project");
-    expect(result).toMatch(/^[a-z0-9_]+$/);
+    expect(result).toMatch(/^[a-z0-9_-]+$/);
+  });
+
+  // ── Suite 2: consistencia slugify ↔ toSlug ──────────────────────────────
+
+  it("is consistent with toSlug for all test names", async () => {
+    const { toSlug } = await import("../../src/ui/utils/slugUtils.ts");
+    const testNames = [
+      "my-project",
+      "my_project",
+      "My Project",
+      "DevTeam_1",
+      "Drass MemorIA",
+      "ÉquipoÁgil",
+      "Straße",
+      "Søren",
+      "my.project",
+      "my-project_v2",
+      "Agent.Bot",
+    ];
+    for (const name of testNames) {
+      const fromFactory = slugify(name);
+      const fromSlugUtils = toSlug(name.trim()) || "project";
+      expect(fromFactory).toBe(fromSlugUtils.slice(0, 80));
+    }
   });
 });
 
@@ -160,9 +229,9 @@ describe('createProject() — happy path', () => {
 
     expect(result.success).toBe(true);
     // The actual project dir is a subdir of baseDir, named after the slug
-    const expectedSubdir = join(baseDir, "new_test_project");
+    const expectedSubdir = join(baseDir, "new-test-project");
     expect(result.projectDir).toBe(expectedSubdir);
-    expect(result.afprojName).toBe("new_test_project.afproj");
+    expect(result.afprojName).toBe("new-test-project.afproj");
 
     // Verify directory structure inside the subdir
     expect(existsSync(expectedSubdir)).toBe(true);
@@ -181,7 +250,7 @@ describe('createProject() — happy path', () => {
     // Only the project subdir should exist in baseDir (no loose files)
     const entries = await readdir(baseDir);
     expect(entries).toHaveLength(1);
-    expect(entries[0]).toBe("my_project");
+    expect(entries[0]).toBe("my-project");
   });
 
   it("writes a valid JSON .afproj manifest with `description` field", async () => {
@@ -272,7 +341,7 @@ describe('createProject() — happy path', () => {
     });
 
     expect(result.success).toBe(true);
-    expect(result.projectDir).toBe(join(baseDir, "works_in_non_empty"));
+    expect(result.projectDir).toBe(join(baseDir, "works-in-non-empty"));
   });
 });
 
@@ -308,7 +377,7 @@ describe('createProject() — error cases', () => {
     await mkdir(baseDir, { recursive: true });
 
     // Pre-create the slug-named subdir with an .afproj inside
-    const existingSubdir = join(baseDir, "duplicate_project");
+    const existingSubdir = join(baseDir, "duplicate-project");
     await mkdir(existingSubdir, { recursive: true });
     await writeFile(join(existingSubdir, "old.afproj"), "{}", "utf-8");
 
@@ -332,7 +401,7 @@ describe('createProject() — rollback on failure', () => {
     await mkdir(baseDir, { recursive: true });
 
     // Pre-create the subdir with a conflicting .afproj
-    const subdir = join(baseDir, "should_fail");
+    const subdir = join(baseDir, "should-fail");
     await mkdir(subdir, { recursive: true });
     await writeFile(join(subdir, "existing.afproj"), "{}", "utf-8");
 
@@ -354,7 +423,7 @@ describe('createProject() — rollback on failure', () => {
 // ── .afproj filename follows the slug ──────────────────────────────────────
 
 describe('createProject() — afproj filename', () => {
-  it("names the .afproj file using the slugified project name (underscores)", async () => {
+  it("names the .afproj file using the slugified project name (hyphens)", async () => {
     const baseDir = join(tempRoot, "slug-filename");
     await mkdir(baseDir, { recursive: true });
 
@@ -364,6 +433,6 @@ describe('createProject() — afproj filename', () => {
     });
 
     expect(result.success).toBe(true);
-    expect(result.afprojName).toBe("agent_flow_test_demo.afproj");
+    expect(result.afprojName).toBe("agent-flow-test-demo.afproj");
   });
 });

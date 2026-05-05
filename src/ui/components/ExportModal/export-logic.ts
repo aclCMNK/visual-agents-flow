@@ -669,7 +669,7 @@ export function buildOpenCodeV2AgentEntry(
     color,
   };
 
-  return { [agentName]: entry };
+  return { [agentSlug]: entry };
 }
 
 /**
@@ -717,12 +717,12 @@ export function buildOpenCodeV2Config(
     return true;
   });
 
-  // default_agent — verbatim name from the selected agent
+  // default_agent — slug of the selected agent (matches the key in the agent object)
   let default_agent = "";
   if (config.defaultAgentId) {
     const defaultAgent = agents.find((a) => a.id === config.defaultAgentId);
     if (defaultAgent) {
-      default_agent = defaultAgent.name;
+      default_agent = toSlug(defaultAgent.name) || defaultAgent.name;
     }
   }
 
@@ -731,7 +731,7 @@ export function buildOpenCodeV2Config(
     .map((p) => p.path.trim())
     .filter((p) => p.length > 0);
 
-  // agent object — keyed by verbatim agentName, only included agents
+  // agent object — keyed by toSlug(agentName), only included agents
   const agentObj: Record<string, OpenCodeV2AgentEntry> = {};
   for (const agent of includedAgents) {
     const entry = buildOpenCodeV2AgentEntry(agent, projectName, separator);
