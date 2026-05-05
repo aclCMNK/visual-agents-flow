@@ -34,6 +34,30 @@ import { existsSync } from 'node:fs';
 
 import type { AgentProfile } from '../types/agent.ts';
 
+// ── Slug utility (mirrors src/ui/utils/slugUtils.ts#toSlug) ───────────────
+/**
+ * Converts a string to a URL/filesystem-safe slug:
+ *   - Lowercases the input
+ *   - Preserves hyphens (-) and underscores (_) at their original positions
+ *   - Replaces other non-alphanumeric characters (including spaces) with hyphens
+ *   - Collapses consecutive hyphens
+ *   - Strips leading/trailing hyphens and underscores
+ *
+ * This mirrors the `toSlug` function in `src/ui/utils/slugUtils.ts` so that
+ * exported filesystem paths are consistent with the `prompt` field in the JSON.
+ */
+function toSlug(input: string): string {
+  let s = input.toLowerCase();
+  s = s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  // Preserve hyphens and underscores; replace everything else with a hyphen
+  s = s.replace(/[^a-z0-9\-_]+/g, "-");
+  // Collapse consecutive hyphens (underscores are left untouched)
+  s = s.replace(/-{2,}/g, "-");
+  // Strip leading/trailing hyphens and underscores
+  s = s.replace(/^[-_]+|[-_]+$/g, "");
+  return s;
+}
+
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export interface ProfileToExport {
@@ -288,24 +312,25 @@ async function writeAtomicFile(
 
 /**
  * Builds the destination path for an agent's exported profiles.
- * Format: [exportDir]/prompts/[projectName]/[agentName].md
+ * Format: [exportDir]/prompts/[projectSlug]/[agentSlug].md
  *
- * The agentName is used EXACTLY as stored in the .adata "agentName" field —
- * never modified, never sanitized. If the OS rejects the resulting path, the
- * error propagates naturally and the agent is added to the skipped list with
- * the OS error message. It is NOT our job to alter the name.
+ * Both projectName and agentName are slugified via `toSlug()` so that the
+ * filesystem path is consistent with the `prompt` field in the exported JSON.
+ * Slugification: lowercase, spaces/special chars → hyphens, diacritics stripped.
  */
 function buildDestinationPath(
   projectName: string,
   agentName: string,
   exportDir: string,
 ): string {
-  return join(exportDir, 'prompts', projectName, `${agentName}.md`);
+  const projectSlug = toSlug(projectName) || "project";
+  const agentSlug   = toSlug(agentName)   || agentName;
+  return join(exportDir, 'prompts', projectSlug, `${agentSlug}.md`);
 }
 
 /**
- * Extracts project name from project directory path.
- * Falls back to directory name if derivation fails.
+ * Extracts project name from project directory path and slugifies it.
+ * Falls back to "project" if derivation fails.
  */
 function extractProjectName(projectDir: string): string {
   const parts = projectDir.split(/[\\/]/);
@@ -387,11 +412,11 @@ export async function exportAgentProfiles(
           continue;
         }
 
-        // Build destination path
+        // Build destination path (slugified project and agent names)
         const destPath = buildDestinationPath(projectName, agent.agentName, exportDir);
 
-        // Ensure destination directory exists
-        await mkdir(join(exportDir, 'prompts', projectName), { recursive: true });
+        // Ensure destination directory exists (use slug for directory name)
+        await mkdir(join(exportDir, 'prompts', toSlug(projectName) || 'project'), { recursive: true });
 
         // Check for conflict
         let shouldWrite = true;

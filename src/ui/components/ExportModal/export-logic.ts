@@ -38,6 +38,7 @@
  */
 
 import type { SerializableAgentModel, SerializableConnection, PermissionsObject } from "../../../electron/bridge.types.ts";
+import { toSlug } from "../../utils/slugUtils.ts";
 
 // ── Shared types ───────────────────────────────────────────────────────────
 
@@ -224,12 +225,14 @@ export function buildAgentOpenCodeJson(
   /** Path separator for the 'prompt' field. Use '\\' on Windows, '/' elsewhere. */
   separator: "/" | "\\" = "/",
 ): Record<string, AgentOpenCodeEntry> {
+  const projSlug  = toSlug(projectName) || "project";
+  const agentSlug = toSlug(agent.name)  || agent.name;
+
   // ── mode ────────────────────────────────────────────────────────────────
   const mode: "primary" | "subagent" = agent.isOrchestrator ? "primary" : "subagent";
 
-  // ── prompt path — verbatim names, no transformation applied ──────────────
-  // separator is platform-specific ('\\' on Windows, '/' elsewhere)
-  const prompt = `{file:.${separator}prompt${separator}${projectName}${separator}${agent.name}.md}`;
+  // ── prompt path — slugified names, separator is platform-specific ('\\' on Windows, '/' elsewhere) ──
+  const prompt = `{file:.${separator}prompt${separator}${projSlug}${separator}${agentSlug}.md}`;
 
   // ── opencode config from adataProperties ────────────────────────────────
   const ocConfig = agent.adataProperties?.opencode as Record<string, unknown> | undefined;
@@ -611,10 +614,10 @@ export function buildOpenCodeV2AgentEntry(
   const mode: "primary" | "subagent" =
     agent.agentType === "Agent" ? "primary" : "subagent";
 
-  // ── prompt — verbatim names, "prompts" directory (plural) ─────────────
+  // ── prompt — slugified names, "prompts" directory (plural) ──────────────
   // separator is platform-specific ('\\' on Windows, '/' elsewhere)
-  // projectName and agentName are used verbatim — no toLowerCase, no slugification
-  const prompt = `{file:.${separator}prompts${separator}${projectName}${separator}${agentName}.md}`;
+  // projectName is lowercased; agentName is used as-is (already stored as slug)
+  const prompt = `{file:.${separator}prompts${separator}${projectName.toLowerCase()}${separator}${agentName}.md}`;
 
   // ── opencode config from adataProperties ──────────────────────────────
   const ocConfig = agent.adataProperties?.opencode as Record<string, unknown> | undefined;
@@ -682,7 +685,7 @@ export function buildOpenCodeV2AgentEntry(
  *
  * @param agents         - All agent snapshots
  * @param config         - Export configuration
- * @param projectName    - Verbatim project name (used as-is for the prompt folder path)
+ * @param projectName    - Verbatim project name (folder is lowercased internally)
  * @param mdFileExists   - Optional predicate: (projectName, agentName) => boolean.
  *                         Defaults to () => true. Pass a real filesystem check in
  *                         production; pass a stub in tests.
