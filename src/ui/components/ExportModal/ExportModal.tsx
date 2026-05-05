@@ -154,6 +154,7 @@ import type { IpcError } from "../../../renderer/services/ipc.ts";
 // only needed during an active export and its lifecycle is fully contained.
 import { SkillConflictDialog } from "./SkillConflictDialog.tsx";
 import { ProfileConflictDialog } from "./ProfileConflictDialog.tsx";
+import { MarkdownViewer } from "./MarkdownViewer.tsx";
 import type {
   ExportSkillsConflictPrompt,
   ExportSkillsConflictAction,
@@ -1192,12 +1193,10 @@ export function ExportModal({
                     </div>
                     <div className="export-modal__agents-panel">
                       <div className="export-modal__panel-label">Profile content (.md — concatenated by order)</div>
-                      <textarea
-                        className="export-modal__textarea export-modal__textarea--readonly"
-                        readOnly
-                        value={agentProfileDisplay}
-                        rows={10}
+                      <MarkdownViewer
+                        content={agentProfileDisplay}
                         aria-label="Agent profile content"
+                        className="export-modal__md-viewer--profile"
                       />
                     </div>
                   </div>
@@ -1243,12 +1242,10 @@ export function ExportModal({
                   <div className="export-modal__skills-content">
                     <div className="export-modal__panel-label">SKILL.md content</div>
                     {selectedSkillName ? (
-                      <textarea
-                        className="export-modal__textarea export-modal__textarea--readonly"
-                        readOnly
-                        value={skills.find((s) => s.name === selectedSkillName)?.content ?? ""}
-                        rows={20}
+                      <MarkdownViewer
+                        content={skills.find((s) => s.name === selectedSkillName)?.content ?? ""}
                         aria-label="SKILL.md content"
+                        className="export-modal__md-viewer--skill"
                       />
                     ) : (
                       <div className="export-modal__empty">Select a skill to view its content</div>
