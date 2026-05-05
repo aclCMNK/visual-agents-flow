@@ -82,7 +82,9 @@ const CHAR_MAP: Record<string, string> = {
   "€": "e",
   "£": "l",
   // Common punctuation that users might type as separators
-  "_": "-",
+  // NOTE: "_" is intentionally NOT mapped here so that underscores are
+  // preserved in the slug (e.g. "puro_traqueteo" → "puro_traqueteo").
+  // Step 3 of toSlug() already keeps [a-z0-9\-_] as-is.
   ".": "-",
   " ": "-",
 };
@@ -117,11 +119,14 @@ function applyCharMap(input: string): string {
  * toSlug("Ágënt Böt")       // → "agent-bot"
  * toSlug("__hello world__") // → "hello-world"  (leading/trailing _ stripped)
  * toSlug("my-project_v2")   // → "my-project_v2" (hyphens and underscores preserved)
+ * toSlug("puro-traqueteo")  // → "puro-traqueteo"
+ * toSlug("puro_traqueteo")  // → "puro_traqueteo"
  */
 export function toSlug(input: string): string {
   let s = input.toLowerCase();
 
   // 1. Apply manual transliteration map (before NFD so ß→ss etc.)
+  //    Note: '_' is NOT in CHAR_MAP — it is preserved by step 3 below.
   s = applyCharMap(s);
 
   // 2. NFD decompose then strip combining diacritical marks (U+0300–U+036F)
@@ -230,6 +235,10 @@ export function slugify(
   existingSlugs: readonly string[] = [],
 ): string {
   let base = toSlug(input);
+
+  // Agent slugs must not contain underscores (isSlugValid only allows [a-z0-9-]).
+  // toSlug() preserves '_' for project-path use, so we normalise them here.
+  base = base.replace(/_+/g, "-").replace(/-{2,}/g, "-").replace(/^-+|-+$/g, "");
 
   // Fallback when the entire input collapses to nothing meaningful
   if (base.length < SLUG_MIN_LENGTH) {

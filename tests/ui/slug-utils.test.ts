@@ -40,8 +40,10 @@ describe("toSlug — basic transformations", () => {
     expect(toSlug("  hello  ")).toBe("hello");
   });
 
-  it("replaces underscores with hyphens", () => {
-    expect(toSlug("my_agent")).toBe("my-agent");
+  it("preserves underscores (hyphens and underscores are kept as-is)", () => {
+    expect(toSlug("my_agent")).toBe("my_agent");
+    expect(toSlug("puro_traqueteo")).toBe("puro_traqueteo");
+    expect(toSlug("puro-traqueteo")).toBe("puro-traqueteo");
   });
 
   it("replaces dots with hyphens", () => {
@@ -50,7 +52,9 @@ describe("toSlug — basic transformations", () => {
 
   it("collapses consecutive hyphens from mixed separators", () => {
     expect(toSlug("my---agent")).toBe("my-agent");
-    expect(toSlug("my _ agent")).toBe("my-agent");
+    // spaces become hyphens; underscore is preserved, so "my _ agent" → "my-_-agent" → "my-_-agent"
+    // (the spaces become hyphens, underscore stays, consecutive hyphens collapse)
+    expect(toSlug("my _ agent")).toBe("my-_-agent");
   });
 
   it("removes characters outside [a-z0-9-] after normalisation", () => {
