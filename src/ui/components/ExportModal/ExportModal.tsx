@@ -142,6 +142,17 @@ import type {
   AgentExportSnapshot,
 } from "./export-logic.ts";
 
+// ── Platform-aware path separator for 'prompt' fields in exported JSON ──────
+// On Windows (win32) OpenCode expects backslash-separated paths in the 'prompt'
+// field (e.g. {file:.\prompts\project\agent.md}). On Linux/macOS forward slash
+// is used. Only the 'prompt' field is affected — no other fields change.
+// Detection uses window.appPaths.platform (same pattern as useFolderExplorer.ts).
+const EXPORT_PATH_SEPARATOR: "/" | "\\" =
+  (window as Window & typeof globalThis & { appPaths?: { platform?: string } })
+    .appPaths?.platform === "win32"
+    ? "\\"
+    : "/";
+
 // ── [NEW] FolderExplorer integration ──────────────────────────────────────
 // Import the home-sandboxed FolderExplorer component and its IpcError type.
 // The IpcError is used to relay FolderExplorer errors into the modal's UI.
@@ -454,7 +465,7 @@ export function ExportModal({
           adataProperties: adataResult.adata,
           agentType: canvasAgent.type,
         };
-        const agentJson = buildAgentOpenCodeJson(snapshot, project.name);
+        const agentJson = buildAgentOpenCodeJson(snapshot, project.name, EXPORT_PATH_SEPARATOR);
         setAgentAdataDisplay(JSON.stringify(agentJson, null, 2));
       } else if (canvasAgent) {
         // No adata found — build with empty adataProperties
@@ -467,7 +478,7 @@ export function ExportModal({
           adataProperties: {},
           agentType: canvasAgent.type,
         };
-        const agentJson = buildAgentOpenCodeJson(snapshot, project.name);
+        const agentJson = buildAgentOpenCodeJson(snapshot, project.name, EXPORT_PATH_SEPARATOR);
         setAgentAdataDisplay(JSON.stringify(agentJson, null, 2));
       } else {
         setAgentAdataDisplay("(agent not found)");
@@ -642,7 +653,7 @@ export function ExportModal({
         },
       }));
 
-      const output = buildOpenCodeV2Config(enriched, config, project.name);
+      const output = buildOpenCodeV2Config(enriched, config, project.name, undefined, EXPORT_PATH_SEPARATOR);
       const content = serializeOpenCodeV2Output(output, config.fileExtension);
 
       const writeResult = await bridge.writeExportFile({

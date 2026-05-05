@@ -222,6 +222,8 @@ export interface AgentOpenCodeEntry {
 export function buildAgentOpenCodeJson(
   agent: AgentExportSnapshot,
   projectName: string,
+  /** Path separator for the 'prompt' field. Use '\\' on Windows, '/' elsewhere. */
+  separator: "/" | "\\" = "/",
 ): Record<string, AgentOpenCodeEntry> {
   const projSlug = toSlug(projectName) || "project";
   const agentSlug = toSlug(agent.name) || agent.name;
@@ -229,8 +231,8 @@ export function buildAgentOpenCodeJson(
   // ── mode ────────────────────────────────────────────────────────────────
   const mode: "primary" | "subagent" = agent.isOrchestrator ? "primary" : "subagent";
 
-  // ── prompt path ─────────────────────────────────────────────────────────
-  const prompt = `{file:./prompt/${projSlug}/${agentSlug}.md}`;
+  // ── prompt path — separator is platform-specific ('\\' on Windows, '/' elsewhere) ──
+  const prompt = `{file:.${separator}prompt${separator}${projSlug}${separator}${agentSlug}.md}`;
 
   // ── opencode config from adataProperties ────────────────────────────────
   const ocConfig = agent.adataProperties?.opencode as Record<string, unknown> | undefined;
@@ -600,6 +602,8 @@ export interface OpenCodeV2Output {
 export function buildOpenCodeV2AgentEntry(
   agent: AgentExportSnapshot,
   projectName: string,
+  /** Path separator for the 'prompt' field. Use '\\' on Windows, '/' elsewhere. */
+  separator: "/" | "\\" = "/",
 ): Record<string, OpenCodeV2AgentEntry> {
   const agentName = agent.name;
   if (!agentName) {
@@ -611,7 +615,8 @@ export function buildOpenCodeV2AgentEntry(
     agent.agentType === "Agent" ? "primary" : "subagent";
 
   // ── prompt — verbatim names, "prompts" directory (plural) ─────────────
-  const prompt = `{file:./prompts/${projectName.toLowerCase()}/${agentName}.md}`;
+  // separator is platform-specific ('\\' on Windows, '/' elsewhere)
+  const prompt = `{file:.${separator}prompts${separator}${projectName.toLowerCase()}${separator}${agentName}.md}`;
 
   // ── opencode config from adataProperties ──────────────────────────────
   const ocConfig = agent.adataProperties?.opencode as Record<string, unknown> | undefined;
@@ -691,6 +696,8 @@ export function buildOpenCodeV2Config(
   config: OpenCodeExportConfig,
   projectName: string,
   mdFileExists: (projectName: string, agentName: string) => boolean = () => true,
+  /** Path separator for the 'prompt' field in each agent entry. Use '\\' on Windows, '/' elsewhere. */
+  separator: "/" | "\\" = "/",
 ): OpenCodeV2Output {
   // ── agent inclusion filter ─────────────────────────────────────────────
   const includedAgents = agents.filter((agent) => {
@@ -723,7 +730,7 @@ export function buildOpenCodeV2Config(
   // agent object — keyed by verbatim agentName, only included agents
   const agentObj: Record<string, OpenCodeV2AgentEntry> = {};
   for (const agent of includedAgents) {
-    const entry = buildOpenCodeV2AgentEntry(agent, projectName);
+    const entry = buildOpenCodeV2AgentEntry(agent, projectName, separator);
     Object.assign(agentObj, entry);
   }
 
