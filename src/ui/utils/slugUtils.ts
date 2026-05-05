@@ -82,7 +82,9 @@ const CHAR_MAP: Record<string, string> = {
   "€": "e",
   "£": "l",
   // Common punctuation that users might type as separators
-  "_": "-",
+  // NOTE: "_" is intentionally NOT mapped here so that underscores are
+  // preserved in the slug (e.g. "puro_traqueteo" → "puro_traqueteo").
+  // Step 3 of toSlug() already keeps [a-z0-9\-_] as-is.
   ".": "-",
   " ": "-",
 };
@@ -115,26 +117,32 @@ function applyCharMap(input: string): string {
  * @example
  * toSlug("Mi Agente Nº1!")  // → "mi-agente-n1"
  * toSlug("Ágënt Böt")       // → "agent-bot"
- * toSlug("__hello world__") // → "hello-world"
+ * toSlug("__hello world__") // → "hello-world"  (leading/trailing _ stripped)
+ * toSlug("my-project_v2")   // → "my-project_v2" (hyphens and underscores preserved)
+ * toSlug("puro-traqueteo")  // → "puro-traqueteo"
+ * toSlug("puro_traqueteo")  // → "puro_traqueteo"
  */
 export function toSlug(input: string): string {
   let s = input.toLowerCase();
 
   // 1. Apply manual transliteration map (before NFD so ß→ss etc.)
+  //    Note: '_' is NOT in CHAR_MAP — it is preserved by step 3 below.
   s = applyCharMap(s);
 
   // 2. NFD decompose then strip combining diacritical marks (U+0300–U+036F)
   //    This handles à→a, é→e, ñ→n (ñ NFD = n + ̃), ü→u, etc.
   s = s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
-  // 3. Replace any character that is NOT [a-z0-9] with a hyphen
-  s = s.replace(/[^a-z0-9]+/g, "-");
+  // 3. Replace any character that is NOT [a-z0-9\-_] with a hyphen
+  //    Hyphens (-) and underscores (_) are preserved as-is so that project/agent
+  //    names like "my-project" or "my_agent" keep their separators in the path.
+  s = s.replace(/[^a-z0-9\-_]+/g, "-");
 
-  // 4. Collapse consecutive hyphens
+  // 4. Collapse consecutive hyphens (but leave underscores untouched)
   s = s.replace(/-{2,}/g, "-");
 
-  // 5. Strip leading and trailing hyphens
-  s = s.replace(/^-+|-+$/g, "");
+  // 5. Strip leading and trailing hyphens and underscores
+  s = s.replace(/^[-_]+|[-_]+$/g, "");
 
   // 6. Enforce maximum length (trim at a hyphen boundary if possible)
   if (s.length > SLUG_MAX_LENGTH) {
@@ -227,6 +235,10 @@ export function slugify(
   existingSlugs: readonly string[] = [],
 ): string {
   let base = toSlug(input);
+
+  // Agent slugs must not contain underscores (isSlugValid only allows [a-z0-9-]).
+  // toSlug() preserves '_' for project-path use, so we normalise them here.
+  base = base.replace(/_+/g, "-").replace(/-{2,}/g, "-").replace(/^-+|-+$/g, "");
 
   // Fallback when the entire input collapses to nothing meaningful
   if (base.length < SLUG_MIN_LENGTH) {

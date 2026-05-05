@@ -307,6 +307,12 @@ interface _FolderExplorerBridge {
   stat(path: string): Promise<_BridgeStatResponse>;
   readChildren(paths: string[], options?: FilterOptions): Promise<_BridgeReadChildrenResponse>;
   mkdir(parentPath: string, name: string): Promise<_BridgeMkdirResponse>;
+  /**
+   * Lists all available Windows drive units (A:\ to Z:\).
+   * On Linux/macOS the main process returns E_UNKNOWN.
+   * Only call this when window.appPaths.platform === "win32".
+   */
+  listDrives(): Promise<{ ok: true; drives: Array<{ letter: string; path: string }> } | _BridgeErr>;
 }
 
 // Augment Window so TypeScript resolves window.folderExplorer inside this module.

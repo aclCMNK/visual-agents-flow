@@ -2864,6 +2864,15 @@ declare global {
 		appPaths?: {
 			/** os.homedir() — cross-platform user home directory. */
 			home: string;
+			/**
+			 * process.platform — the current OS platform.
+			 * Values: "win32" | "linux" | "darwin" (or other Node platforms).
+			 * Use this in the renderer to detect Windows without importing Node's `os`.
+			 *
+			 * Example:
+			 *   const IS_WINDOWS = window.appPaths?.platform === "win32";
+			 */
+			platform: "win32" | "linux" | "darwin";
 		};
 		/**
 		 * Models API bridge — exposes getModels() for the renderer.

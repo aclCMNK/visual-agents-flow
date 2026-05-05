@@ -6,3 +6,5 @@
 
 export { ExportModal } from "./ExportModal.tsx";
 export type { ExportModalProps } from "./ExportModal.tsx";
+export { JsonViewer } from "./JsonViewer.tsx";
+export type { JsonViewerProps } from "./JsonViewer.tsx";

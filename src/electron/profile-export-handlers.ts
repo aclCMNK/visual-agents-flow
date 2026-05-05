@@ -34,6 +34,92 @@ import { existsSync } from 'node:fs';
 
 import type { AgentProfile } from '../types/agent.ts';
 
+// ── Slug utility (mirrors src/ui/utils/slugUtils.ts#toSlug) ───────────────
+/**
+ * Manual transliteration map for characters that NFD decomposition does NOT
+ * reduce to a plain ASCII base letter.
+ *
+ * MUST be applied BEFORE normalize("NFD") because ß, ø, œ, æ, etc. have no
+ * NFD decomposition that yields ASCII.
+ *
+ * NOTE: "_" is intentionally NOT in this map — underscores must be preserved
+ * as-is (step 3 of toSlug keeps [a-z0-9\-_]). If "_" were here it would be
+ * converted to "-" before step 3, breaking "my_project" → "my_project".
+ *
+ * This map is identical to CHAR_MAP in src/ui/utils/slugUtils.ts.
+ */
+const CHAR_MAP: Record<string, string> = {
+  // German
+  ß: "ss",
+  // Icelandic / Old English
+  ð: "d",
+  þ: "th",
+  // Scandinavian
+  ø: "o",
+  œ: "oe",
+  æ: "ae",
+  // Other common ligatures / special letters
+  ł: "l",
+  đ: "d",
+  ħ: "h",
+  ı: "i",
+  ĸ: "k",
+  ŋ: "n",
+  // Currency-like that can appear in names
+  "€": "e",
+  "£": "l",
+  // Common punctuation that users might type as separators
+  ".": "-",
+  " ": "-",
+};
+
+/**
+ * Replaces each character in `input` with its transliteration from CHAR_MAP,
+ * or returns the character unchanged if it has no mapping.
+ */
+function applyCharMap(input: string): string {
+  let result = "";
+  for (const ch of input) {
+    result += CHAR_MAP[ch] ?? ch;
+  }
+  return result;
+}
+
+/**
+ * Converts a string to a URL/filesystem-safe slug.
+ *
+ * Pipeline (identical to src/ui/utils/slugUtils.ts#toSlug):
+ *   1. toLowerCase()
+ *   2. applyCharMap()  ← CHAR_MAP: ß→ss, ø→o, æ→ae, .→-, " "→-, etc.
+ *   3. NFD normalize + strip combining marks (U+0300–U+036F)
+ *   4. replace /[^a-z0-9\-_]+/g → "-"   ← preserves - and _
+ *   5. replace /-{2,}/g → "-"            ← collapses consecutive hyphens
+ *   6. replace /^[-_]+|[-_]+$/g → ""     ← strip leading/trailing - and _
+ *   7. Enforce max length (64 chars)
+ *
+ * This mirrors the `toSlug` function in `src/ui/utils/slugUtils.ts` so that
+ * exported filesystem paths are consistent with the `prompt` field in the JSON.
+ */
+function toSlug(input: string): string {
+  let s = input.toLowerCase();
+  // Step 1: CHAR_MAP (before NFD so ß→ss etc. works correctly)
+  s = applyCharMap(s);
+  // Step 2: NFD decompose then strip combining diacritical marks (U+0300–U+036F)
+  s = s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  // Step 3: Preserve hyphens and underscores; replace everything else with a hyphen
+  s = s.replace(/[^a-z0-9\-_]+/g, "-");
+  // Step 4: Collapse consecutive hyphens (underscores are left untouched)
+  s = s.replace(/-{2,}/g, "-");
+  // Step 5: Strip leading/trailing hyphens and underscores
+  s = s.replace(/^[-_]+|[-_]+$/g, "");
+  // Step 6: Enforce max length (64 chars, same as slugUtils.ts)
+  if (s.length > 64) {
+    s = s.slice(0, 64);
+    s = s.replace(/-+$/, "");
+  }
+  return s;
+}
+
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export interface ProfileToExport {
@@ -288,24 +374,25 @@ async function writeAtomicFile(
 
 /**
  * Builds the destination path for an agent's exported profiles.
- * Format: [exportDir]/prompts/[projectName]/[agentName].md
+ * Format: [exportDir]/prompts/[projectSlug]/[agentSlug].md
  *
- * The agentName is used EXACTLY as stored in the .adata "agentName" field —
- * never modified, never sanitized. If the OS rejects the resulting path, the
- * error propagates naturally and the agent is added to the skipped list with
- * the OS error message. It is NOT our job to alter the name.
+ * Both projectName and agentName are slugified via `toSlug()` so that the
+ * filesystem path is consistent with the `prompt` field in the exported JSON.
+ * Slugification: lowercase, spaces/special chars → hyphens, diacritics stripped.
  */
 function buildDestinationPath(
   projectName: string,
   agentName: string,
   exportDir: string,
 ): string {
-  return join(exportDir, 'prompts', projectName, `${agentName}.md`);
+  const projectSlug = toSlug(projectName) || "project";
+  const agentSlug   = toSlug(agentName)   || agentName;
+  return join(exportDir, 'prompts', projectSlug, `${agentSlug}.md`);
 }
 
 /**
- * Extracts project name from project directory path.
- * Falls back to directory name if derivation fails.
+ * Extracts project name from project directory path and slugifies it.
+ * Falls back to "project" if derivation fails.
  */
 function extractProjectName(projectDir: string): string {
   const parts = projectDir.split(/[\\/]/);
@@ -387,11 +474,11 @@ export async function exportAgentProfiles(
           continue;
         }
 
-        // Build destination path
+        // Build destination path (slugified project and agent names)
         const destPath = buildDestinationPath(projectName, agent.agentName, exportDir);
 
-        // Ensure destination directory exists
-        await mkdir(join(exportDir, 'prompts', projectName), { recursive: true });
+        // Ensure destination directory exists (use slug for directory name)
+        await mkdir(join(exportDir, 'prompts', toSlug(projectName) || 'project'), { recursive: true });
 
         // Check for conflict
         let shouldWrite = true;

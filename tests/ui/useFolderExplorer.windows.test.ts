@@ -12,6 +12,7 @@
  *   - goUp from subdirectory navigates to parent
  *   - Linux/macOS: isAtRoot true at "/"
  *   - Linux/macOS: goUp at "/" is no-op
+ *   - IS_WINDOWS detection via window.appPaths.platform (not window.platform)
  */
 
 import { describe, it, expect } from "bun:test";

@@ -142,6 +142,17 @@ import type {
   AgentExportSnapshot,
 } from "./export-logic.ts";
 
+// ── Platform-aware path separator for 'prompt' fields in exported JSON ──────
+// On Windows (win32) OpenCode expects backslash-separated paths in the 'prompt'
+// field (e.g. {file:.\prompts\project\agent.md}). On Linux/macOS forward slash
+// is used. Only the 'prompt' field is affected — no other fields change.
+// Detection uses window.appPaths.platform (same pattern as useFolderExplorer.ts).
+const EXPORT_PATH_SEPARATOR: "/" | "\\" =
+  (window as Window & typeof globalThis & { appPaths?: { platform?: string } })
+    .appPaths?.platform === "win32"
+    ? "\\"
+    : "/";
+
 // ── [NEW] FolderExplorer integration ──────────────────────────────────────
 // Import the home-sandboxed FolderExplorer component and its IpcError type.
 // The IpcError is used to relay FolderExplorer errors into the modal's UI.
@@ -154,6 +165,8 @@ import type { IpcError } from "../../../renderer/services/ipc.ts";
 // only needed during an active export and its lifecycle is fully contained.
 import { SkillConflictDialog } from "./SkillConflictDialog.tsx";
 import { ProfileConflictDialog } from "./ProfileConflictDialog.tsx";
+import { MarkdownViewer } from "./MarkdownViewer.tsx";
+import { JsonViewer } from "./JsonViewer.tsx";
 import type {
   ExportSkillsConflictPrompt,
   ExportSkillsConflictAction,
@@ -246,6 +259,7 @@ export function ExportModal({
       autoUpdate:          typeof props.autoupdate         === "boolean" ? props.autoupdate         : defaults.autoUpdate,
       hideDefaultPlanner:  typeof props.hideDefaultPlanner === "boolean" ? props.hideDefaultPlanner : defaults.hideDefaultPlanner,
       hideDefaultBuilder:  typeof props.hideDefaultBuilder === "boolean" ? props.hideDefaultBuilder : defaults.hideDefaultBuilder,
+      createOpencodeDir:   typeof props.createOpencodeDir  === "boolean" ? props.createOpencodeDir  : defaults.createOpencodeDir,
     };
   });
   const [isExporting, setIsExporting] = useState(false);
@@ -451,7 +465,7 @@ export function ExportModal({
           adataProperties: adataResult.adata,
           agentType: canvasAgent.type,
         };
-        const agentJson = buildAgentOpenCodeJson(snapshot, project.name);
+        const agentJson = buildAgentOpenCodeJson(snapshot, project.projectDir.split(/[\\/]/).pop() || project.name, EXPORT_PATH_SEPARATOR);
         setAgentAdataDisplay(JSON.stringify(agentJson, null, 2));
       } else if (canvasAgent) {
         // No adata found — build with empty adataProperties
@@ -464,7 +478,7 @@ export function ExportModal({
           adataProperties: {},
           agentType: canvasAgent.type,
         };
-        const agentJson = buildAgentOpenCodeJson(snapshot, project.name);
+        const agentJson = buildAgentOpenCodeJson(snapshot, project.projectDir.split(/[\\/]/).pop() || project.name, EXPORT_PATH_SEPARATOR);
         setAgentAdataDisplay(JSON.stringify(agentJson, null, 2));
       } else {
         setAgentAdataDisplay("(agent not found)");
@@ -577,6 +591,7 @@ export function ExportModal({
       autoupdate:          next.autoUpdate,
       hideDefaultPlanner:  next.hideDefaultPlanner,
       hideDefaultBuilder:  next.hideDefaultBuilder,
+      createOpencodeDir:   next.createOpencodeDir,
     };
     saveProject({ properties: updatedProperties }).catch((err: unknown) => {
       console.warn("[ExportModal] No se pudo guardar la configuración general en project.properties:", err);
@@ -587,6 +602,14 @@ export function ExportModal({
     if (!project || !bridge || !canExport) return;
     setIsExporting(true);
     setExportResult(null);
+
+    // ── Compute effective destination directory ─────────────────────────
+    // When createOpencodeDir is ON and fileExtension is "json", all exported
+    // files go into a `.opencode/` subdirectory of the chosen exportDir.
+    const effectiveDestDir =
+      config.createOpencodeDir && config.fileExtension === "json"
+        ? `${exportDir}/.opencode`
+        : exportDir;
 
     try {
       // Build agent snapshots (without full profile content — use placeholder)
@@ -630,11 +653,11 @@ export function ExportModal({
         },
       }));
 
-      const output = buildOpenCodeV2Config(enriched, config, project.name);
+      const output = buildOpenCodeV2Config(enriched, config, project.projectDir.split(/[\\/]/).pop() || project.name, undefined, EXPORT_PATH_SEPARATOR);
       const content = serializeOpenCodeV2Output(output, config.fileExtension);
 
       const writeResult = await bridge.writeExportFile({
-        destDir: exportDir,
+        destDir: effectiveDestDir,
         fileName: outputFileName,
         content,
       });
@@ -656,7 +679,7 @@ export function ExportModal({
       try {
         const skillsResult = await bridge.exportSkills({
           projectDir: project.projectDir,
-          destDir: exportDir,
+          destDir: effectiveDestDir,
         });
 
         if (skillsResult.aborted) {
@@ -690,7 +713,7 @@ export function ExportModal({
       try {
         const profilesResult = await bridge.exportAgentProfiles({
           projectDir: project.projectDir,
-          destDir: exportDir,
+          destDir: effectiveDestDir,
         });
 
         if (profilesResult.error && !profilesResult.exported.length) {
@@ -1111,6 +1134,30 @@ export function ExportModal({
                 </span>
               </div>
 
+              {/* ── Create .opencode dir toggle (only visible when ext === "json") ── */}
+              {config.fileExtension === "json" && (
+                <div className="export-modal__field-row">
+                  <label className="export-modal__label">
+                    Create .opencode dir
+                  </label>
+                  <div className="export-modal__switch-row">
+                    <button
+                      role="switch"
+                      aria-checked={config.createOpencodeDir}
+                      className={`export-modal__switch${config.createOpencodeDir ? " export-modal__switch--on" : ""}`}
+                      onClick={() => setConfig((c) => {
+                        const next = { ...c, createOpencodeDir: !c.createOpencodeDir };
+                        saveGeneralProperties(next);
+                        return next;
+                      })}
+                      title="When ON, all exported files are placed inside a .opencode/ subdirectory"
+                    >
+                      {config.createOpencodeDir ? "ON" : "OFF"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="export-modal__field-row">
                 <label className="export-modal__label">
                   Hide default planner
@@ -1180,24 +1227,24 @@ export function ExportModal({
                   <div className="export-modal__loading">Loading agent data…</div>
                 ) : (
                   <div className="export-modal__agents-panels">
-                    <div className="export-modal__agents-panel">
-                      <div className="export-modal__panel-label">OpenCode config (JSON)</div>
-                      <textarea
-                        className="export-modal__textarea export-modal__textarea--readonly"
-                        readOnly
-                        value={agentAdataDisplay}
-                        rows={10}
-                        aria-label="Agent OpenCode config JSON"
-                      />
-                    </div>
+                     <div className="export-modal__agents-panel">
+                       <div className="export-modal__panel-label">OpenCode config (JSON)</div>
+                       {/* [CHANGED] Replaced read-only textarea with JsonViewer.
+                           Uses react-json-pretty for syntax-highlighted, formatted JSON.
+                           Read-only, no expand/collapse, no editing.
+                           Scroll is handled by .json-viewer CSS class. */}
+                       <JsonViewer
+                         json={agentAdataDisplay}
+                         aria-label="Agent OpenCode config JSON"
+                         className="export-modal__json-viewer--agent"
+                       />
+                     </div>
                     <div className="export-modal__agents-panel">
                       <div className="export-modal__panel-label">Profile content (.md — concatenated by order)</div>
-                      <textarea
-                        className="export-modal__textarea export-modal__textarea--readonly"
-                        readOnly
-                        value={agentProfileDisplay}
-                        rows={10}
+                      <MarkdownViewer
+                        content={agentProfileDisplay}
                         aria-label="Agent profile content"
+                        className="export-modal__md-viewer--profile"
                       />
                     </div>
                   </div>
@@ -1243,12 +1290,10 @@ export function ExportModal({
                   <div className="export-modal__skills-content">
                     <div className="export-modal__panel-label">SKILL.md content</div>
                     {selectedSkillName ? (
-                      <textarea
-                        className="export-modal__textarea export-modal__textarea--readonly"
-                        readOnly
-                        value={skills.find((s) => s.name === selectedSkillName)?.content ?? ""}
-                        rows={20}
+                      <MarkdownViewer
+                        content={skills.find((s) => s.name === selectedSkillName)?.content ?? ""}
                         aria-label="SKILL.md content"
+                        className="export-modal__md-viewer--skill"
                       />
                     ) : (
                       <div className="export-modal__empty">Select a skill to view its content</div>

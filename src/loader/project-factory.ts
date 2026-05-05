@@ -18,7 +18,7 @@
  *       metadata/               ← agent .adata metadata files
  *       skills/                 ← shared skill markdown files
  *
- * A new subdirectory named after the project slug (lowercase, spaces→'_') is
+ * A new subdirectory named after the project slug (lowercase, spaces→'-') is
  * ALWAYS created inside the directory selected by the user. Files are never
  * written directly into the user-selected folder.
  *
@@ -40,6 +40,8 @@ import { constants as fsConstants } from "node:fs";
 import { join, basename } from "node:path";
 import { randomUUID } from "node:crypto";
 
+import { toSlug } from "../ui/utils/slugUtils.ts";
+
 import type {
   NewProjectDirValidation,
   CreateProjectRequest,
@@ -50,16 +52,14 @@ import type {
 
 /**
  * Converts a human-readable project name into a filesystem-safe slug.
- * Spaces and non-alphanumeric characters are replaced with underscores.
- * Example: "My Cool Project" → "my_cool_project"
+ * Delegates to the canonical toSlug() from slugUtils so that hyphens ('-')
+ * and underscores ('_') are preserved exactly as in the original name.
+ * Example: "My Cool Project" → "my-cool-project"
+ * Example: "my-project"     → "my-project"  (not "my_project")
+ * Example: "DevTeam_1"      → "devteam_1"   (underscore preserved)
  */
 export function slugify(name: string): string {
-  return name
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 80) || "project";
+  return toSlug(name.trim()).slice(0, 80) || "project";
 }
 
 // ── Directory validation ───────────────────────────────────────────────────

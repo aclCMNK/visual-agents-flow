@@ -102,6 +102,13 @@ export interface OpenCodeExportConfig {
   hideDefaultPlanner: boolean;
   /** Whether to hide the default builder agent in the exported config */
   hideDefaultBuilder: boolean;
+  /**
+   * When true AND fileExtension === "json", all exported files are placed inside
+   * a `.opencode/` subdirectory of the chosen export directory.
+   * Example: exportDir/.opencode/opencode.json, exportDir/.opencode/skills/, etc.
+   * Only relevant when fileExtension === "json"; ignored for "jsonc".
+   */
+  createOpencodeDir: boolean;
 }
 
 /** Default schema URL for OpenCode config files */
@@ -118,6 +125,7 @@ export function makeDefaultOpenCodeConfig(): OpenCodeExportConfig {
     plugins: [],
     hideDefaultPlanner: false,
     hideDefaultBuilder: false,
+    createOpencodeDir: true,
   };
 }
 
@@ -214,15 +222,17 @@ export interface AgentOpenCodeEntry {
 export function buildAgentOpenCodeJson(
   agent: AgentExportSnapshot,
   projectName: string,
+  /** Path separator for the 'prompt' field. Use '\\' on Windows, '/' elsewhere. */
+  separator: "/" | "\\" = "/",
 ): Record<string, AgentOpenCodeEntry> {
-  const projSlug = toSlug(projectName) || "project";
-  const agentSlug = toSlug(agent.name) || agent.name;
+  const projSlug  = toSlug(projectName) || "project";
+  const agentSlug = toSlug(agent.name)  || agent.name;
 
   // ── mode ────────────────────────────────────────────────────────────────
   const mode: "primary" | "subagent" = agent.isOrchestrator ? "primary" : "subagent";
 
-  // ── prompt path ─────────────────────────────────────────────────────────
-  const prompt = `{file:./prompt/${projSlug}/${agentSlug}.md}`;
+  // ── prompt path — slugified names, separator is platform-specific ('\\' on Windows, '/' elsewhere) ──
+  const prompt = `{file:.${separator}prompt${separator}${projSlug}${separator}${agentSlug}.md}`;
 
   // ── opencode config from adataProperties ────────────────────────────────
   const ocConfig = agent.adataProperties?.opencode as Record<string, unknown> | undefined;
@@ -582,8 +592,8 @@ export interface OpenCodeV2Output {
  * All fields are always present. Defaults are applied for missing optional
  * source values (temperature→0.05, step→7, color→#ffffff, permission→{}).
  *
- * agentName is verbatim from agent.name — NOT slugified.
- * prompt path uses "prompts" (plural) and verbatim project/agent names.
+ * Both projectName and agentName are slugified via toSlug() for the prompt path,
+ * matching the real filesystem directory/file names. prompt uses "prompts" (plural).
  * model is "<provider>/<model>" in lowercase.
  * mode is derived from agentType: "Agent"→"primary", "Sub-Agent"→"subagent".
  *
@@ -592,6 +602,8 @@ export interface OpenCodeV2Output {
 export function buildOpenCodeV2AgentEntry(
   agent: AgentExportSnapshot,
   projectName: string,
+  /** Path separator for the 'prompt' field. Use '\\' on Windows, '/' elsewhere. */
+  separator: "/" | "\\" = "/",
 ): Record<string, OpenCodeV2AgentEntry> {
   const agentName = agent.name;
   if (!agentName) {
@@ -602,8 +614,13 @@ export function buildOpenCodeV2AgentEntry(
   const mode: "primary" | "subagent" =
     agent.agentType === "Agent" ? "primary" : "subagent";
 
-  // ── prompt — verbatim names, "prompts" directory (plural) ─────────────
-  const prompt = `{file:./prompts/${projectName.toLowerCase()}/${agentName}.md}`;
+  // ── prompt — slugified names, "prompts" directory (plural) ──────────────
+  // separator is platform-specific ('\\' on Windows, '/' elsewhere)
+  // Both projectName and agentName are slugified via toSlug() to match the real
+  // filesystem directory/file names created by profile-export-handlers.ts.
+  const projSlug  = toSlug(projectName) || "project";
+  const agentSlug = toSlug(agentName)   || agentName;
+  const prompt = `{file:.${separator}prompts${separator}${projSlug}${separator}${agentSlug}.md}`;
 
   // ── opencode config from adataProperties ──────────────────────────────
   const ocConfig = agent.adataProperties?.opencode as Record<string, unknown> | undefined;
@@ -652,7 +669,7 @@ export function buildOpenCodeV2AgentEntry(
     color,
   };
 
-  return { [agentName]: entry };
+  return { [agentSlug]: entry };
 }
 
 /**
@@ -671,7 +688,7 @@ export function buildOpenCodeV2AgentEntry(
  *
  * @param agents         - All agent snapshots
  * @param config         - Export configuration
- * @param projectName    - Verbatim project name (folder is lowercased internally)
+ * @param projectName    - Verbatim project name (slugified via toSlug() for prompt paths and folder names)
  * @param mdFileExists   - Optional predicate: (projectName, agentName) => boolean.
  *                         Defaults to () => true. Pass a real filesystem check in
  *                         production; pass a stub in tests.
@@ -683,6 +700,8 @@ export function buildOpenCodeV2Config(
   config: OpenCodeExportConfig,
   projectName: string,
   mdFileExists: (projectName: string, agentName: string) => boolean = () => true,
+  /** Path separator for the 'prompt' field in each agent entry. Use '\\' on Windows, '/' elsewhere. */
+  separator: "/" | "\\" = "/",
 ): OpenCodeV2Output {
   // ── agent inclusion filter ─────────────────────────────────────────────
   const includedAgents = agents.filter((agent) => {
@@ -698,12 +717,12 @@ export function buildOpenCodeV2Config(
     return true;
   });
 
-  // default_agent — verbatim name from the selected agent
+  // default_agent — slug of the selected agent (matches the key in the agent object)
   let default_agent = "";
   if (config.defaultAgentId) {
     const defaultAgent = agents.find((a) => a.id === config.defaultAgentId);
     if (defaultAgent) {
-      default_agent = defaultAgent.name;
+      default_agent = toSlug(defaultAgent.name) || defaultAgent.name;
     }
   }
 
@@ -712,10 +731,10 @@ export function buildOpenCodeV2Config(
     .map((p) => p.path.trim())
     .filter((p) => p.length > 0);
 
-  // agent object — keyed by verbatim agentName, only included agents
+  // agent object — keyed by toSlug(agentName), only included agents
   const agentObj: Record<string, OpenCodeV2AgentEntry> = {};
   for (const agent of includedAgents) {
-    const entry = buildOpenCodeV2AgentEntry(agent, projectName);
+    const entry = buildOpenCodeV2AgentEntry(agent, projectName, separator);
     Object.assign(agentObj, entry);
   }
 
